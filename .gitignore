@@ -1,0 +1,10 @@
+# Python / Django
+**/.venv/
+**/__pycache__/
+**/*.pyc
+.env
+*.sqlite3
+
+# Node
+node_modules/
+dist/

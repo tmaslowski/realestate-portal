@@ -55,6 +55,17 @@ def portal_session(request):
 
     txn = t.transaction
 
+    tasks = [
+        {
+            "id": task.id,
+            "title": task.title,
+            "description": task.description,
+            "due_date": task.due_date,
+            "completed": task.completed,
+        }
+        for task in txn.tasks.all()
+    ]
+
     utilities = [
         {
             "id": u.id,
@@ -86,8 +97,22 @@ def portal_session(request):
             "agent": {"name": txn.agent.name, "email": txn.agent.email},
             "property": {"address": txn.address},
             "transaction": TransactionSerializer(txn).data,
-            "tasks": [],  # keep (we are doing tasks)
+            "tasks": tasks,
             "utilities": utilities,
-            "documents": documents,  # keep (next feature)
+            "documents": documents,
         }
     )
+
+
+@api_view(["POST"])
+def toggle_task(request, task_id):
+    from .models import Task
+
+    try:
+        task = Task.objects.get(id=task_id)
+    except Task.DoesNotExist:
+        return Response({"error": "task not found"}, status=404)
+
+    task.completed = not task.completed
+    task.save(update_fields=["completed"])
+    return Response({"id": task.id, "completed": task.completed})

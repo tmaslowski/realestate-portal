@@ -178,6 +178,68 @@ export default function App() {
     <div className="muted">No documents uploaded yet.</div>
   )}
 </div>
+{/* Tasks */}
+<div className="card">
+  <div className="cardTitle">Your To-Do List</div>
+
+  {d.tasks?.length ? (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {d.tasks.map((task) => (
+        <label
+          key={task.id}
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 12,
+            paddingTop: 8,
+            borderTop: "1px solid rgba(255,255,255,0.08)",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={!!task.completed}
+            onChange={async () => {
+              if (!token) return;
+
+              await fetch(
+                `http://127.0.0.1:8000/api/portal/tasks/${task.id}/toggle/`,
+                { method: "POST" }
+              );
+
+              // Reload session so UI stays in sync
+              const r = await fetch(
+                `http://127.0.0.1:8000/api/portal/session/?t=${encodeURIComponent(token)}`
+              );
+              setSession(await r.json());
+            }}
+            style={{ marginTop: 4 }}
+          />
+
+          <div>
+            <div style={{ fontWeight: 650, opacity: task.completed ? 0.65 : 1 }}>
+              {task.title}
+            </div>
+
+            {task.description && (
+              <div style={{ fontSize: 13, opacity: 0.78, marginTop: 2 }}>
+                {task.description}
+              </div>
+            )}
+
+            {task.due_date && (
+              <div style={{ fontSize: 12, opacity: 0.72, marginTop: 4 }}>
+                Due by {task.due_date}
+              </div>
+            )}
+          </div>
+        </label>
+      ))}
+    </div>
+  ) : (
+    <div className="muted">No tasks yet.</div>
+  )}
+</div>
         <div className="card">
   <div className="cardTitle">Utilities</div>
 

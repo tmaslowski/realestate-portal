@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Agent, Buyer, Transaction, PortalToken, Utility, Document
+from .models import Agent, Buyer, Transaction, PortalToken, Utility, Document, Task
 
 
 @admin.register(Agent)
@@ -54,3 +54,11 @@ class DocumentAdmin(admin.ModelAdmin):
     )
     list_filter = ("doc_type", "visible_to_buyer")
     search_fields = ("title", "doc_type")
+
+
+@admin.register(Task)
+class TaskAdmin(admin.ModelAdmin):
+    list_display = ("title", "transaction", "completed", "due_date", "order")
+    list_filter = ("completed",)
+    search_fields = ("title", "description")
+    ordering = ("order",)

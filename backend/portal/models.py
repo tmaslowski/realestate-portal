@@ -109,3 +109,23 @@ class Document(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class Task(models.Model):
+    transaction = models.ForeignKey(
+        Transaction, on_delete=models.CASCADE, related_name="tasks"
+    )
+
+    title = models.CharField(max_length=200)
+    description = models.TextField(blank=True, default="")
+    due_date = models.DateField(null=True, blank=True)
+    completed = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["completed", "order", "due_date"]
+
+    def __str__(self):
+        return self.title

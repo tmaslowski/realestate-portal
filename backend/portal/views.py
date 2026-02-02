@@ -98,6 +98,7 @@ def portal_session(request):
                 "name": txn.agent.name,
                 "email": txn.agent.email,
                 "photo_url": txn.agent.photo_url,
+                "brokerage_logo_url": txn.agent.brokerage_logo_url,
             },
             "property": {"address": txn.address, "hero_image_url": txn.hero_image_url},
             "transaction": TransactionSerializer(txn).data,

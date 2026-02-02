@@ -9,6 +9,7 @@ class Agent(models.Model):
     name = models.CharField(max_length=120)
     email = models.EmailField(unique=True)
     photo_url = models.URLField(blank=True, default="")
+    brokerage_logo_url = models.URLField(blank=True, default="")
 
     def __str__(self):
         return f"{self.name} <{self.email}>"

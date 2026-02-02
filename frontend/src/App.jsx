@@ -141,6 +141,35 @@ export default function App() {
   <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
     {/* Left: Address + status */}
     <div style={{ minWidth: 260, flex: "1 1 520px" }}>
+      {/* Brokerage Logo */}
+{d.agent?.brokerage_logo_url ? (
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      marginBottom: 10,
+    }}
+  >
+    <img
+      src={d.agent.brokerage_logo_url}
+      alt="Brokerage logo"
+      style={{
+        height: 36,
+        maxWidth: 220,
+        objectFit: "contain",
+        display: "block",
+        background: "rgba(255,255,255,0.06)",
+        border: "1px solid rgba(255,255,255,0.12)",
+        borderRadius: 10,
+        padding: "6px 10px",
+      }}
+    />
+    <div style={{ fontSize: 12, opacity: 0.75, whiteSpace: "nowrap" }}>
+      Brokerage
+    </div>
+  </div>
+) : null}
       <div className="propertyTitle">{d.property.address}</div>
       <div className="subLine">
         <span className="pill">{d.transaction.status}</span>

@@ -69,6 +69,17 @@ def portal_session(request):
         }
         for u in txn.utilities.order_by("category", "provider_name")
     ]
+    documents = [
+        {
+            "id": d.id,
+            "title": d.title,
+            "doc_type": d.doc_type,
+            "url": d.file.url,
+            "uploaded_at": d.uploaded_at,
+        }
+        for d in txn.documents.filter(visible_to_buyer=True).order_by("-uploaded_at")
+    ]
+
     return Response(
         {
             "buyer": {"name": txn.buyer.name, "email": txn.buyer.email},
@@ -77,6 +88,6 @@ def portal_session(request):
             "transaction": TransactionSerializer(txn).data,
             "tasks": [],  # keep (we are doing tasks)
             "utilities": utilities,
-            "documents": [],  # keep (next feature)
+            "documents": documents,  # keep (next feature)
         }
     )

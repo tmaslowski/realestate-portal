@@ -17,8 +17,8 @@ const FALLBACK_DEMO_DATA = {
     lofty_transaction_id: "",
   },
   tasks: [],
+  utilities: [],
   documents: [],
-  messages: [],
 };
 
 function fmtDate(isoOrNull) {
@@ -129,7 +129,55 @@ export default function App() {
             <span className="value">{fmtDate(d.transaction.closing_date)}</span>
           </div>
         </div>
+        <div className="card">
+  <div className="cardTitle">Documents</div>
 
+  {d.documents?.length ? (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {d.documents.map((doc) => (
+        <div
+          key={doc.id}
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            paddingTop: 8,
+            borderTop: "1px solid rgba(255,255,255,0.08)",
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 600 }}>{doc.title}</div>
+            {doc.doc_type && (
+              <div style={{ fontSize: 12, opacity: 0.75 }}>
+                {doc.doc_type}
+              </div>
+            )}
+          </div>
+
+          <a
+            href={`http://127.0.0.1:8000${doc.url}`}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              fontSize: 13,
+              textDecoration: "none",
+              padding: "6px 10px",
+              borderRadius: 8,
+              background: "rgba(255,255,255,0.08)",
+              color: "#e9eefc",
+              border: "1px solid rgba(255,255,255,0.12)",
+            }}
+          >
+            View
+          </a>
+        </div>
+      ))}
+    </div>
+  ) : (
+    <div className="muted">No documents uploaded yet.</div>
+  )}
+</div>
         <div className="card">
   <div className="cardTitle">Utilities</div>
 

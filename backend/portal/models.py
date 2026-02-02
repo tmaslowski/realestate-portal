@@ -92,3 +92,20 @@ class Utility(models.Model):
 
     def __str__(self):
         return f"{self.get_category_display()}: {self.provider_name}"
+
+
+class Document(models.Model):
+    transaction = models.ForeignKey(
+        Transaction, on_delete=models.CASCADE, related_name="documents"
+    )
+
+    title = models.CharField(max_length=200)
+    file = models.FileField(upload_to="documents/")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    # Optional metadata
+    doc_type = models.CharField(max_length=80, blank=True, default="")
+    visible_to_buyer = models.BooleanField(default=True)
+
+    def __str__(self):
+        return self.title

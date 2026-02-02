@@ -78,15 +78,136 @@ export default function App() {
         Token: {token ? "YES" : "NO"} | API session: {session ? "YES" : "NO"}{" "}
         {session?.property?.address ? `| Address: ${session.property.address}` : ""}
       </div>
+{/* Hero Image */}
+{d.property?.hero_image_url ? (
+  <div
+    style={{
+      maxWidth: 1100,
+      margin: "0 auto 16px",
+      borderRadius: 18,
+      overflow: "hidden",
+      border: "1px solid rgba(255,255,255,0.12)",
+      boxShadow: "0 16px 40px rgba(0,0,0,0.35)",
+      position: "relative",
+      height: 240,
+      backgroundImage: `url(${d.property.hero_image_url})`,
+      backgroundSize: "cover",
+      backgroundPosition: "center",
+    }}
+  >
+    {/* dark gradient overlay so header text still pops */}
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        background:
+          "linear-gradient(90deg, rgba(5,7,19,0.85) 0%, rgba(5,7,19,0.35) 55%, rgba(5,7,19,0.10) 100%)",
+      }}
+    />
 
+    {/* subtle bottom fade */}
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        height: 90,
+        background: "linear-gradient(180deg, rgba(5,7,19,0.0), rgba(5,7,19,0.75))",
+      }}
+    />
+
+    {/* Label */}
+    <div
+      style={{
+        position: "absolute",
+        left: 14,
+        bottom: 12,
+        padding: "6px 10px",
+        borderRadius: 999,
+        fontSize: 12,
+        border: "1px solid rgba(255,255,255,0.14)",
+        background: "rgba(0,0,0,0.35)",
+        color: "#e9eefc",
+        backdropFilter: "blur(8px)",
+      }}
+    >
+      Property Photo
+    </div>
+  </div>
+) : null}
       {/* ===== Example header bound to data ===== */}
       <header className="topHeader">
-        <div className="propertyTitle">{d.property.address}</div>
-        <div className="subLine">
-          <span className="pill">{d.transaction.status}</span>
-          <span className="muted">Closing: {fmtDate(d.transaction.closing_date)}</span>
+  <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+    {/* Left: Address + status */}
+    <div style={{ minWidth: 260, flex: "1 1 520px" }}>
+      <div className="propertyTitle">{d.property.address}</div>
+      <div className="subLine">
+        <span className="pill">{d.transaction.status}</span>
+        <span className="muted">Closing: {d.transaction.closing_date || "—"}</span>
+      </div>
+    </div>
+
+    {/* Right: Hero countdown */}
+    <div
+      style={{
+        flex: "0 0 auto",
+        minWidth: 220,
+        padding: "14px 14px",
+        borderRadius: 16,
+        border: "1px solid rgba(255,255,255,0.12)",
+        background: "rgba(255,255,255,0.06)",
+        boxShadow: "0 10px 24px rgba(0,0,0,0.22)",
+        backdropFilter: "blur(10px)",
+      }}
+    >
+      {d.transaction?.closing_date ? (() => {
+        const now = new Date();
+        const closing = new Date(`${d.transaction.closing_date}T23:59:59`);
+        const msPerDay = 1000 * 60 * 60 * 24;
+        const diffMs = closing.getTime() - now.getTime();
+        const days = Math.ceil(diffMs / msPerDay);
+
+        const headline = days > 0 ? `${days}` : "0";
+        const sub =
+          days > 1 ? "days until closing" :
+          days === 1 ? "day until closing" :
+          "closing today";
+
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ fontSize: 12, opacity: 0.8, letterSpacing: 0.5, textTransform: "uppercase" }}>
+              Days Until Closing
+            </div>
+
+            <div style={{ fontSize: 48, fontWeight: 900, lineHeight: 1, letterSpacing: "-1px" }}>
+              {headline}
+            </div>
+
+            <div style={{ fontSize: 13, opacity: 0.85 }}>
+              {sub}
+            </div>
+
+            {days < 0 && (
+              <div style={{ fontSize: 12, opacity: 0.85 }}>
+                ⚠️ Closing date is in the past
+              </div>
+            )}
+          </div>
+        );
+      })() : (
+        <div>
+          <div style={{ fontSize: 12, opacity: 0.8, letterSpacing: 0.5, textTransform: "uppercase" }}>
+            Days Until Closing
+          </div>
+          <div style={{ fontSize: 14, opacity: 0.8, marginTop: 8 }}>
+            No closing date set yet.
+          </div>
         </div>
-      </header>
+      )}
+    </div>
+  </div>
+</header>
 
       {/* ===== Example sections bound to data ===== */}
       <section className="grid">
@@ -102,17 +223,56 @@ export default function App() {
           </div>
         </div>
 
-        <div className="card">
-          <div className="cardTitle">Agent</div>
-          <div className="cardRow">
-            <span className="label">Name</span>
-            <span className="value">{d.agent.name}</span>
-          </div>
-          <div className="cardRow">
-            <span className="label">Email</span>
-            <span className="value">{d.agent.email}</span>
-          </div>
-        </div>
+{/* Agent */}
+<div className="card">
+  <div className="cardTitle">Your Agent</div>
+
+  <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+    {d.agent?.photo_url ? (
+      <img
+        src={d.agent.photo_url}
+        alt="Agent"
+        style={{
+          width: 72,
+          height: 72,
+          borderRadius: 14,
+          objectFit: "cover",
+          border: "1px solid rgba(255,255,255,0.15)",
+          background: "#0b1226",
+        }}
+        onError={(e) => {
+          e.currentTarget.style.display = "none";
+        }}
+      />
+    ) : (
+      <div
+        style={{
+          width: 72,
+          height: 72,
+          borderRadius: 14,
+          background: "rgba(255,255,255,0.08)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 12,
+          opacity: 0.75,
+        }}
+      >
+        No Photo
+      </div>
+    )}
+
+    <div>
+      <div style={{ fontWeight: 650, fontSize: 16 }}>
+        {d.agent.name}
+      </div>
+
+      <div style={{ fontSize: 13, opacity: 0.8 }}>
+        {d.agent.email}
+      </div>
+    </div>
+  </div>
+</div>
 
         <div className="card">
           <div className="cardTitle">Transaction</div>
@@ -178,6 +338,9 @@ export default function App() {
     <div className="muted">No documents uploaded yet.</div>
   )}
 </div>
+
+
+
 {/* Tasks */}
 <div className="card">
   <div className="cardTitle">Your To-Do List</div>

@@ -94,8 +94,12 @@ def portal_session(request):
     return Response(
         {
             "buyer": {"name": txn.buyer.name, "email": txn.buyer.email},
-            "agent": {"name": txn.agent.name, "email": txn.agent.email},
-            "property": {"address": txn.address},
+            "agent": {
+                "name": txn.agent.name,
+                "email": txn.agent.email,
+                "photo_url": txn.agent.photo_url,
+            },
+            "property": {"address": txn.address, "hero_image_url": txn.hero_image_url},
             "transaction": TransactionSerializer(txn).data,
             "tasks": tasks,
             "utilities": utilities,

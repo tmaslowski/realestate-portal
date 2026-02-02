@@ -8,6 +8,7 @@ from django.utils import timezone
 class Agent(models.Model):
     name = models.CharField(max_length=120)
     email = models.EmailField(unique=True)
+    photo_url = models.URLField(blank=True, default="")
 
     def __str__(self):
         return f"{self.name} <{self.email}>"
@@ -32,6 +33,7 @@ class Transaction(models.Model):
     address = models.CharField(max_length=200)
     status = models.CharField(max_length=60, default="Active")
     closing_date = models.DateField(null=True, blank=True)
+    hero_image_url = models.URLField(blank=True, default="")
 
     # Optional: future Lofty mapping
     lofty_transaction_id = models.CharField(max_length=64, blank=True, default="")
@@ -102,6 +104,7 @@ class Document(models.Model):
     title = models.CharField(max_length=200)
     file = models.FileField(upload_to="documents/")
     uploaded_at = models.DateTimeField(auto_now_add=True)
+    hero_image_url = models.URLField(blank=True, default="")
 
     # Optional metadata
     doc_type = models.CharField(max_length=80, blank=True, default="")

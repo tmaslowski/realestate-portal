@@ -30,7 +30,7 @@ body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI
 .topHeader{
   max-width: 1100px;
   margin: 0 auto 18px;
-  padding: 18px 18px;
+  padding: 22px 22px;
   border-radius: 16px;
   background: rgba(18, 28, 54, 0.50);
   border: 1px solid rgba(255,255,255,0.10);

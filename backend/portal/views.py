@@ -1,13 +1,18 @@
-from rest_framework.decorators import api_view
+from rest_framework.decorators import (
+    api_view,
+    authentication_classes,
+    permission_classes,
+)
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
 from .models import (
     Agent,
+    Buyer,
     AgentPortalToken,
     Transaction,
     PortalToken,
-    Utility,
     Document,
     Task,
     TransactionVendor,
@@ -16,7 +21,14 @@ from .models import (
 from .serializers import TransactionSerializer
 
 
+# -----------------------------
+# Buyer Portal (magic link)
+# -----------------------------
+
+
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def invite_buyer(request, transaction_id):
     """
     Demo-friendly: returns a magic link instead of emailing it.
@@ -45,6 +57,8 @@ def invite_buyer(request, transaction_id):
 
 
 @api_view(["GET"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def portal_session(request):
     """
     Buyer UI calls this with ?t=TOKEN
@@ -54,174 +68,17 @@ def portal_session(request):
         return Response({"error": "missing token"}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        t = PortalToken.objects.select_related(
+        pt = PortalToken.objects.select_related(
             "transaction", "transaction__buyer", "transaction__agent"
         ).get(token=token_value)
     except PortalToken.DoesNotExist:
         return Response({"error": "invalid token"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    if not t.is_valid():
+    if not pt.is_valid():
         return Response({"error": "expired token"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    txn = t.transaction
+    txn = pt.transaction
 
-    tasks = [
-        {
-            "id": task.id,
-            "title": task.title,
-            "description": task.description,
-            "due_date": task.due_date,
-            "completed": task.completed,
-        }
-        for task in txn.tasks.all()
-    ]
-
-
-def _get_agent_from_token(request):
-    token_value = request.query_params.get("t", "")
-    if not token_value:
-        return None, Response(
-            {"error": "missing token"}, status=status.HTTP_400_BAD_REQUEST
-        )
-
-    try:
-        at = AgentPortalToken.objects.select_related("agent").get(token=token_value)
-    except AgentPortalToken.DoesNotExist:
-        return None, Response(
-            {"error": "invalid token"}, status=status.HTTP_401_UNAUTHORIZED
-        )
-
-    if not at.is_valid():
-        return None, Response(
-            {"error": "expired token"}, status=status.HTTP_401_UNAUTHORIZED
-        )
-
-    return at.agent, None
-
-
-@api_view(["POST"])
-def invite_agent(request, agent_id):
-    """
-    Demo-friendly: returns an agent magic link instead of emailing it.
-    Later we can send via AWS SES.
-    """
-    try:
-        agent = Agent.objects.get(id=agent_id)
-    except Agent.DoesNotExist:
-        return Response({"error": "agent not found"}, status=status.HTTP_404_NOT_FOUND)
-
-    token = AgentPortalToken.mint(agent, hours=72)
-    link = f"http://localhost:5173/agent?t={token.token}"
-
-    return Response(
-        {
-            "agent_id": agent.id,
-            "token": token.token,
-            "expires_at": token.expires_at,
-            "link": link,
-        }
-    )
-
-
-@api_view(["GET"])
-def agent_session(request):
-    """
-    Agent UI bootstrap:
-    - validates agent token (?t=...)
-    - returns agent profile + list of their transactions
-    """
-    token_value = request.query_params.get("t", "")
-    if not token_value:
-        return Response({"error": "missing token"}, status=status.HTTP_400_BAD_REQUEST)
-
-    try:
-        t = AgentPortalToken.objects.select_related("agent").get(token=token_value)
-    except AgentPortalToken.DoesNotExist:
-        return Response({"error": "invalid token"}, status=status.HTTP_401_UNAUTHORIZED)
-
-    if not t.is_valid():
-        return Response({"error": "expired token"}, status=status.HTTP_401_UNAUTHORIZED)
-
-    agent = t.agent
-
-    # Transactions for this agent
-    txns = agent.transactions.select_related("buyer").order_by("-created_at")
-
-    transactions = [
-        {
-            "id": txn.id,
-            "address": txn.address,
-            "status": txn.status,
-            "closing_date": txn.closing_date,
-            "buyer_name": txn.buyer.name if txn.buyer_id else "",
-        }
-        for txn in txns
-    ]
-
-    return Response(
-        {
-            "agent": {
-                "id": agent.id,
-                "name": agent.name,
-                "email": agent.email,
-                "photo_url": getattr(agent, "photo_url", ""),
-                "brokerage_logo_url": getattr(agent, "brokerage_logo_url", ""),
-            },
-            "transactions": transactions,
-            # Keep this for forward compatibility (your UI expects it)
-            "favorites": [],
-        }
-    )
-
-
-@api_view(["GET", "PATCH"])
-def agent_transaction(request, transaction_id):
-    """
-    Agent UI loads/saves one transaction's editable fields.
-    Auth: AgentPortalToken passed as ?t=TOKEN
-
-    GET  -> returns transaction payload (same shape as buyer session, but scoped)
-    PATCH -> updates allowed fields, returns refreshed payload
-    """
-    agent, err = _get_agent_from_token(request)
-    if err:
-        return err
-
-    try:
-        txn = (
-            Transaction.objects.select_related("buyer", "agent")
-            .prefetch_related(
-                "tasks", "utilities", "documents", "transaction_vendors__vendor"
-            )
-            .get(id=transaction_id, agent=agent)
-        )
-    except Transaction.DoesNotExist:
-        return Response(
-            {"error": "transaction not found"}, status=status.HTTP_404_NOT_FOUND
-        )
-
-    # --- PATCH allowed fields ---
-    if request.method == "PATCH":
-        payload = request.data or {}
-
-        # Transaction fields
-        if "address" in payload:
-            txn.address = payload.get("address", "") or ""
-        if "closing_date" in payload:
-            cd = payload.get("closing_date")
-            txn.closing_date = cd or None
-        if "hero_image_url" in payload:
-            txn.hero_image_url = payload.get("hero_image_url", "") or ""
-        if "homestead_exemption_url" in payload:
-            txn.homestead_exemption_url = (
-                payload.get("homestead_exemption_url", "") or ""
-            )
-        if "review_url" in payload:
-            txn.review_url = payload.get("review_url", "") or ""
-
-        txn.save()
-
-    # --- build payload (mirrors buyer session shape where useful) ---
     tasks = [
         {
             "id": task.id,
@@ -311,19 +168,176 @@ def agent_transaction(request, transaction_id):
             "faqs": faqs,
         }
     )
+
+
+# -----------------------------
+# Agent Portal (magic link)
+# -----------------------------
+
+
+def _get_agent_from_token(request):
+    token_value = request.query_params.get("t", "")
+    if not token_value:
+        return None, Response(
+            {"error": "missing token"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        at = AgentPortalToken.objects.select_related("agent").get(token=token_value)
+    except AgentPortalToken.DoesNotExist:
+        return None, Response(
+            {"error": "invalid token"}, status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    if not at.is_valid():
+        return None, Response(
+            {"error": "expired token"}, status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    return at.agent, None
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def invite_agent(request, agent_id):
+    """
+    Demo-friendly: returns an agent magic link instead of emailing it.
+    Later we can send via AWS SES.
+    """
+    try:
+        agent = Agent.objects.get(id=agent_id)
+    except Agent.DoesNotExist:
+        return Response({"error": "agent not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    token = AgentPortalToken.mint(agent, hours=72)
+    link = f"http://localhost:5173/agent?t={token.token}"
+
+    return Response(
+        {
+            "agent_id": agent.id,
+            "token": token.token,
+            "expires_at": token.expires_at,
+            "link": link,
+        }
+    )
+
+
+@api_view(["GET"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def agent_session(request):
+    """
+    Agent UI bootstrap:
+    - validates agent token (?t=...)
+    - returns agent profile + list of their transactions
+    - and favorite vendors (for pickers)
+    """
+    agent, err = _get_agent_from_token(request)
+    if err:
+        return err
+
+    txns = agent.transactions.select_related("buyer").order_by("-created_at")
+    transactions = [
+        {
+            "id": txn.id,
+            "address": txn.address,
+            "status": txn.status,
+            "closing_date": txn.closing_date,
+            "buyer_name": txn.buyer.name if txn.buyer_id else "",
+        }
+        for txn in txns
+    ]
+
+    favs_qs = Vendor.objects.filter(agent=agent, is_favorite=True).order_by(
+        "category", "name"
+    )
+    favorites = [
+        {
+            "id": v.id,
+            "name": v.name,
+            "category": v.category,
+            "category_label": v.get_category_display(),
+            "phone": v.phone,
+            "email": v.email,
+            "website": v.website,
+            "notes": v.notes,
+            "is_favorite": v.is_favorite,
+        }
+        for v in favs_qs
+    ]
+
     return Response(
         {
             "agent": {
                 "id": agent.id,
                 "name": agent.name,
                 "email": agent.email,
-                "photo_url": agent.photo_url,
+                "photo_url": getattr(agent, "photo_url", ""),
                 "brokerage_logo_url": getattr(agent, "brokerage_logo_url", ""),
             },
             "transactions": transactions,
             "favorites": favorites,
         }
     )
+
+
+@api_view(["GET", "PATCH"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def agent_transaction(request, transaction_id):
+    """
+    Agent UI loads/saves one transaction's editable fields.
+    Auth: AgentPortalToken passed as ?t=TOKEN
+
+    GET  -> returns transaction payload (same shape as buyer session, but scoped)
+    PATCH -> updates allowed fields, returns refreshed payload
+    """
+    agent, err = _get_agent_from_token(request)
+    if err:
+        return err
+
+    try:
+        txn = (
+            Transaction.objects.select_related("buyer", "agent")
+            .prefetch_related(
+                "tasks", "utilities", "documents", "transaction_vendors__vendor"
+            )
+            .get(id=transaction_id, agent=agent)
+        )
+    except Transaction.DoesNotExist:
+        return Response(
+            {"error": "transaction not found"}, status=status.HTTP_404_NOT_FOUND
+        )
+
+    if request.method == "PATCH":
+        payload = request.data or {}
+
+        if "address" in payload:
+            txn.address = payload.get("address", "") or ""
+        if "closing_date" in payload:
+            txn.closing_date = payload.get("closing_date") or None
+        if "hero_image_url" in payload:
+            txn.hero_image_url = payload.get("hero_image_url", "") or ""
+        if "homestead_exemption_url" in payload:
+            txn.homestead_exemption_url = (
+                payload.get("homestead_exemption_url", "") or ""
+            )
+        if "review_url" in payload:
+            txn.review_url = payload.get("review_url", "") or ""
+
+        txn.save()
+
+    tasks = [
+        {
+            "id": task.id,
+            "title": task.title,
+            "description": task.description,
+            "due_date": task.due_date,
+            "completed": task.completed,
+        }
+        for task in txn.tasks.all()
+    ]
 
     utilities = [
         {
@@ -339,6 +353,7 @@ def agent_transaction(request, transaction_id):
         }
         for u in txn.utilities.order_by("category", "provider_name")
     ]
+
     documents = [
         {
             "id": d.id,
@@ -354,7 +369,6 @@ def agent_transaction(request, transaction_id):
     preferred_vendors = []
 
     tv_qs = txn.transaction_vendors.select_related("vendor").all()
-
     for tv in tv_qs:
         v = tv.vendor
         payload = {
@@ -373,10 +387,14 @@ def agent_transaction(request, transaction_id):
         elif tv.role == TransactionVendor.Role.PREFERRED_VENDOR:
             preferred_vendors.append(payload)
 
-    faqs = [
-        {"id": f.id, "q": f.question, "a": f.answer}
-        for f in txn.agent.faqs.filter(is_active=True).order_by("sort_order", "id")
-    ]
+    faqs = (
+        [
+            {"id": f.id, "q": f.question, "a": f.answer}
+            for f in txn.agent.faqs.filter(is_active=True).order_by("sort_order", "id")
+        ]
+        if hasattr(txn.agent, "faqs")
+        else []
+    )
 
     return Response(
         {
@@ -384,8 +402,8 @@ def agent_transaction(request, transaction_id):
             "agent": {
                 "name": txn.agent.name,
                 "email": txn.agent.email,
-                "photo_url": txn.agent.photo_url,
-                "brokerage_logo_url": txn.agent.brokerage_logo_url,
+                "photo_url": getattr(txn.agent, "photo_url", ""),
+                "brokerage_logo_url": getattr(txn.agent, "brokerage_logo_url", ""),
             },
             "property": {"address": txn.address, "hero_image_url": txn.hero_image_url},
             "transaction": TransactionSerializer(txn).data,
@@ -394,32 +412,24 @@ def agent_transaction(request, transaction_id):
             "documents": documents,
             "closing_attorney": closing_attorney,
             "preferred_vendors": preferred_vendors,
-            "homestead_exemption_url": txn.homestead_exemption_url,
-            "review_url": txn.review_url,
+            "homestead_exemption_url": getattr(txn, "homestead_exemption_url", ""),
+            "review_url": getattr(txn, "review_url", ""),
             "faqs": faqs,
         }
     )
 
 
 @api_view(["GET"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def agent_vendors(request):
     """
     Returns favorite vendors for this agent (used by AgentSetup.jsx).
     GET /api/portal/agent/vendors/?t=TOKEN
     """
-    token_value = request.query_params.get("t", "")
-    if not token_value:
-        return Response({"error": "missing token"}, status=status.HTTP_400_BAD_REQUEST)
-
-    try:
-        t = AgentPortalToken.objects.select_related("agent").get(token=token_value)
-    except AgentPortalToken.DoesNotExist:
-        return Response({"error": "invalid token"}, status=status.HTTP_401_UNAUTHORIZED)
-
-    if not t.is_valid():
-        return Response({"error": "expired token"}, status=status.HTTP_401_UNAUTHORIZED)
-
-    agent = t.agent
+    agent, err = _get_agent_from_token(request)
+    if err:
+        return err
 
     qs = Vendor.objects.filter(agent=agent, is_favorite=True).order_by(
         "category", "name"
@@ -444,20 +454,16 @@ def agent_vendors(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def agent_vendor_create(request):
-    token_value = request.query_params.get("t", "")
-    if not token_value:
-        return Response({"error": "missing token"}, status=status.HTTP_400_BAD_REQUEST)
-
-    try:
-        t = AgentPortalToken.objects.select_related("agent").get(token=token_value)
-    except AgentPortalToken.DoesNotExist:
-        return Response({"error": "invalid token"}, status=status.HTTP_401_UNAUTHORIZED)
-
-    if not t.is_valid():
-        return Response({"error": "expired token"}, status=status.HTTP_401_UNAUTHORIZED)
-
-    agent = t.agent
+    """
+    Create a Vendor belonging to the logged-in agent.
+    POST /api/portal/agent/vendor/create/?t=TOKEN
+    """
+    agent, err = _get_agent_from_token(request)
+    if err:
+        return err
 
     name = (request.data.get("name") or "").strip()
     if not name:
@@ -466,7 +472,7 @@ def agent_vendor_create(request):
         )
 
     vendor = Vendor.objects.create(
-        agent=agent,  # ✅ THIS is the missing piece
+        agent=agent,
         name=name,
         category=request.data.get("category") or Vendor.Category.OTHER,
         phone=request.data.get("phone") or "",
@@ -493,6 +499,8 @@ def agent_vendor_create(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def agent_set_transaction_vendors(request, transaction_id):
     """
     Sets the closing attorney + preferred vendors for a transaction.
@@ -510,13 +518,14 @@ def agent_set_transaction_vendors(request, transaction_id):
     try:
         txn = Transaction.objects.get(id=transaction_id, agent=agent)
     except Transaction.DoesNotExist:
-        return Response({"error": "transaction not found"}, status=404)
+        return Response(
+            {"error": "transaction not found"}, status=status.HTTP_404_NOT_FOUND
+        )
 
     payload = request.data or {}
     closing_id = payload.get("closing_attorney_vendor_id")
     preferred_ids = payload.get("preferred_vendor_ids") or []
 
-    # Clear existing vendor links for these roles
     txn.transaction_vendors.filter(
         role__in=[
             TransactionVendor.Role.CLOSING_ATTORNEY,
@@ -524,12 +533,14 @@ def agent_set_transaction_vendors(request, transaction_id):
         ]
     ).delete()
 
-    # Closing attorney (optional)
     if closing_id:
         try:
-            v = Vendor.objects.get(id=closing_id)
+            v = Vendor.objects.get(id=closing_id, agent=agent)
         except Vendor.DoesNotExist:
-            return Response({"error": "closing attorney vendor not found"}, status=400)
+            return Response(
+                {"error": "closing attorney vendor not found"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         TransactionVendor.objects.create(
             transaction=txn,
@@ -537,9 +548,8 @@ def agent_set_transaction_vendors(request, transaction_id):
             role=TransactionVendor.Role.CLOSING_ATTORNEY,
         )
 
-    # Preferred vendors (0..n)
     if preferred_ids:
-        vendors = Vendor.objects.filter(id__in=preferred_ids)
+        vendors = Vendor.objects.filter(id__in=preferred_ids, agent=agent)
         for v in vendors:
             TransactionVendor.objects.create(
                 transaction=txn,
@@ -551,13 +561,85 @@ def agent_set_transaction_vendors(request, transaction_id):
 
 
 @api_view(["POST"])
-def toggle_task(request, task_id):
-    from .models import Task
+@authentication_classes([])
+@permission_classes([AllowAny])
+def agent_transaction_create(request):
+    """
+    Create a new Transaction (and Buyer if needed) for the logged-in Agent.
+    POST /api/portal/agent/transaction/create/?t=TOKEN
+    Body: { buyer_name, buyer_email, address, closing_date?, status?, hero_image_url? }
+    """
+    agent, err = _get_agent_from_token(request)
+    if err:
+        return err
 
+    data = request.data or {}
+
+    buyer_name = (data.get("buyer_name") or "").strip()
+    buyer_email = (data.get("buyer_email") or "").strip()
+    address = (data.get("address") or "").strip()
+
+    if not buyer_name:
+        return Response(
+            {"error": "buyer_name is required"}, status=status.HTTP_400_BAD_REQUEST
+        )
+    if not buyer_email:
+        return Response(
+            {"error": "buyer_email is required"}, status=status.HTTP_400_BAD_REQUEST
+        )
+    if not address:
+        return Response(
+            {"error": "address is required"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    buyer, _ = Buyer.objects.get_or_create(
+        email=buyer_email,
+        defaults={"name": buyer_name},
+    )
+    if buyer.name != buyer_name:
+        buyer.name = buyer_name
+        buyer.save(update_fields=["name"])
+
+    txn = Transaction.objects.create(
+        agent=agent,
+        buyer=buyer,
+        address=address,
+        status=(data.get("status") or "Active"),
+        closing_date=data.get("closing_date") or None,
+        hero_image_url=(data.get("hero_image_url") or ""),
+        homestead_exemption_url=(data.get("homestead_exemption_url") or ""),
+        review_url=(data.get("review_url") or ""),
+        lofty_transaction_id=(data.get("lofty_transaction_id") or ""),
+    )
+
+    return Response(
+        {
+            "transaction": {
+                "id": txn.id,
+                "address": txn.address,
+                "status": txn.status,
+                "closing_date": txn.closing_date,
+                "buyer_name": txn.buyer.name,
+                "buyer_email": txn.buyer.email,
+            }
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+# -----------------------------
+# Buyer task toggle (buyer UI)
+# -----------------------------
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def toggle_task(request, task_id):
     try:
         task = Task.objects.get(id=task_id)
     except Task.DoesNotExist:
-        return Response({"error": "task not found"}, status=404)
+        return Response({"error": "task not found"}, status=status.HTTP_404_NOT_FOUND)
 
     task.completed = not task.completed
     task.save(update_fields=["completed"])

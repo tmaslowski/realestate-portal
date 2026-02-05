@@ -2,68 +2,184 @@
 
 ## Purpose
 
-A buyer-facing real estate portal used by agents to guide buyers through a home purchase.
-This is a pilot project (1–3 agents) with potential to monetize.
+A buyer-facing real estate transaction portal used by agents to guide buyers through a home purchase.
 
-Built as a favor project, but designed to be production-ready.
+Originally conceived as a buyer-only experience managed via Django admin, the project has evolved into a **dual-surface system**:
+
+- A **buyer portal** (magic-link, read-only with light interaction)
+- An **agent setup interface** (custom UI replacing Django admin for daily use)
+
+This is a **pilot project (1–3 agents)** with real transactions, designed to validate value before monetization.
+
+Built as a favor project, but intentionally architected to be production-ready.
+
+---
 
 ## Stack
 
-- Backend: Django 5 + Django REST Framework
-- Frontend: React (Vite)
-- Auth: Magic link via PortalToken (no accounts)
-- Admin: Django admin used by agents
-- Hosting target: AWS
-- Source control: GitHub
+- **Backend:** Django 5 + Django REST Framework
+- **Frontend:** React (Vite)
+- **Auth:** Magic links via tokenized URLs (no accounts/passwords)
+  - Buyer tokens
+  - Agent tokens
+- **Storage (current):** Local media
+- **Storage (planned):** AWS S3
+- **Hosting target:** AWS
+- **Source control:** GitHub
+
+---
 
 ## Core Models
 
-- Agent (name, email, photo_url, brokerage_logo_url)
-- Buyer (name, email)
-- Transaction (agent, buyer, address, status, closing_date, hero_image_url)
-- Task (checklist items, buyer-completable)
-- Utility (power, water, internet, etc.)
-- Document (uploaded files, buyer-visible)
+### People
+
+- **Agent**
+
+  - name
+  - email
+  - photo_url
+  - brokerage_logo_url
+
+- **Buyer**
+  - name
+  - email
+
+### Transactional
+
+- **Transaction**
+
+  - agent
+  - buyer
+  - address
+  - status
+  - closing_date
+  - hero_image_url
+  - homestead_exemption_url
+  - review_url
+  - external IDs (e.g. Lofty)
+
+- **Task**
+
+  - title
+  - description
+  - due_date
+  - completed (buyer-toggleable)
+
+- **Utility**
+
+  - category (power, water, internet, etc.)
+  - provider info
+  - notes
+  - optional setup-by date
+
+- **Document**
+  - uploaded file
+  - title
+  - type
+  - visibility flag (buyer-visible)
+
+### Vendors
+
+- **Vendor**
+
+  - category (closing attorney, lender, inspector, utility, etc.)
+  - contact info
+  - notes
+  - favorite flag (agent-level)
+
+- **TransactionVendor**
+  - links vendors to transactions
+  - supports roles (closing attorney vs preferred vendor)
+  - allows transaction-specific overrides
+
+---
 
 ## Key Features Implemented
 
-- Magic-link buyer access (?t=TOKEN)
-- Admin-driven data entry
+### Buyer Portal
+
+- Magic-link access (`?t=TOKEN`)
+- No accounts or passwords
 - Buyer task checklist (interactive)
 - Utilities section
-- Documents list
+- Documents list with download links
 - Hero property image
-- Hero countdown “Days until closing”
+- Prominent “Days until closing” countdown
 - Agent photo
-- Brokerage logo in header
+- Brokerage logo header
+- Closing attorney display
+- Preferred vendors list
+- Helpful links:
+  - Homestead exemption
+  - Leave a review
+- FAQ section (agent-managed)
+
+### Agent Experience (Major Expansion)
+
+- **Agent magic-link access** (separate from buyer)
+- **Custom Agent Setup UI** (replaces Django admin for daily use)
+- Agent session endpoint
+- Agent transaction GET / PATCH endpoints
+- Edit transaction basics:
+  - Address
+  - Closing date
+  - Hero image URL
+  - Homestead exemption link
+  - Review link
+- Vendor management:
+  - Create vendors
+  - Mark favorites
+  - Assign closing attorney per transaction
+  - Assign preferred vendors per transaction
+- Shared favorites across an agent’s transactions
+- Fully working end-to-end flow without Django admin access
+
+---
 
 ## Deliberate Omissions (for now)
 
-- Messaging
+- Messaging/chat
 - Buyer login/accounts
 - Payments
 - Push notifications
+- MLS ingestion
+- Full CRM replacement
+
+These are intentionally deferred to prevent overbuilding.
+
+---
 
 ## Current Status
 
-- Fully working demo
-- Ready for agent pilot
-- Next likely steps: uploads to S3, document upload UI, deployment
+- Fully working **buyer + agent demo**
+- Agent no longer needs Django admin
+- Real data flowing end-to-end
+- Vendor and attorney workflows validated
+- Ready for **live agent pilot**
+
+This is no longer just a buyer UI — it is a **lightweight transaction management experience for agents** with a buyer-facing layer.
+
+---
 
 ## Known Decisions
 
-- URLs used for images for now; uploads later
-- Focus on buyer clarity over agent tooling
+- Images stored as URLs for now (uploads later)
+- Magic links over accounts to reduce friction
+- Favor clarity and simplicity over feature breadth
+- Agent tooling is “just enough,” not a CRM
+- One transaction = one buyer experience
 
-## Status
-
-This project is an active MVP. See PROJECT_CONTEXT.md for current scope and decisions.
+---
 
 ## Next Steps / Pilot Plan
 
 ### Objective
 
-Validate whether a buyer-facing portal improves communication, reduces agent friction, and feels valuable enough that agents would pay for it.
+Validate whether a buyer-facing portal + simple agent setup:
+
+- Improves buyer clarity
+- Reduces agent friction
+- Feels valuable enough that agents would pay for it
 
 Pilot size: **1–3 agents**, real transactions only.
 
@@ -73,90 +189,92 @@ Pilot size: **1–3 agents**, real transactions only.
 
 Goal: remove demo rough edges without expanding scope.
 
-- [ ] Final UI pass (spacing, typography, minor layout polish)
-- [ ] Confirm mobile responsiveness (iPhone-sized viewport)
-- [ ] Replace placeholder images/logos where needed
-- [ ] Add basic empty-state copy (when no tasks, no documents, etc.)
-- [ ] Add short welcome copy for buyers (“Here’s what to expect…”)
+- [ ] Final UI spacing & typography pass
+- [ ] Confirm mobile responsiveness (iPhone viewport)
+- [ ] Clean empty states (“No documents yet”, etc.)
+- [ ] Light copy pass (buyer-friendly language)
+- [ ] Remove debug-only UI elements
 
-_No new features added in this phase._
+_No new features added._
 
 ---
 
 ### Phase 2: Agent Pilot Setup (1 day)
 
-Goal: make it easy for an agent to use without hand-holding.
+Goal: zero hand-holding for agents.
 
 - [ ] Create 1–3 real agent records
-- [ ] Create 1 real transaction per agent
+- [ ] Create 1–2 real transactions per agent
 - [ ] Populate:
-  - Tasks (inspection, insurance, utilities, closing prep)
+  - Tasks
   - Utilities
-  - At least one document
-  - Hero property photo
-  - Agent photo + brokerage logo
-- [ ] Generate magic links for each transaction
-- [ ] Confirm links work on desktop + mobile
+  - Vendors
+  - Closing attorney
+  - Documents
+  - Hero images
+- [ ] Generate buyer magic links
+- [ ] Generate agent magic links
+- [ ] Test flows on desktop + mobile
 
 ---
 
 ### Phase 3: Live Pilot (1–2 weeks)
 
-Goal: observe real usage and reactions.
+Goal: observe real behavior.
 
-- Agent sends buyer the magic link
-- Buyer uses portal naturally (no training)
+- Agent sends buyer the link
+- Buyer uses portal naturally
 - Observe:
-  - Do buyers check tasks?
-  - Do buyers reference documents here instead of emailing?
-  - Do agents update tasks/utilities during the transaction?
+  - Task completion
+  - Document usage
+  - Vendor reference
+  - Agent update frequency
 - Collect qualitative feedback:
-  - “What did you like?”
+  - “What was helpful?”
   - “What was confusing?”
   - “What did you expect but didn’t see?”
 
-No feature changes during this phase unless critical.
+No feature changes unless critical.
 
 ---
 
 ### Phase 4: Evaluation & Decision
 
-Goal: decide whether to proceed to a paid MVP.
-
 Key questions:
 
 - Would agents pay for this?
-- What would they pay _for_ specifically?
-- Is this a standalone product or a value-add to existing tools?
-- Does Lofty integration meaningfully increase value?
+- What specific part delivers the most value?
+- Is this a standalone product or an add-on?
+- Does deeper Lofty integration matter?
 
 Possible outcomes:
 
-- Proceed to production MVP
-- Narrow scope to a single killer feature
+- Proceed to paid MVP
+- Narrow to a single killer feature
 - Keep as internal tool
 - Pause or sunset
 
 ---
 
-### Likely MVP Enhancements (Post-Pilot)
+## Likely MVP Enhancements (Post-Pilot)
 
-Only pursued if pilot feedback supports it.
+Only pursued if feedback supports it.
 
-- Image uploads (move from URL fields to S3)
+- Image uploads → S3
 - Document upload UI (drag & drop)
-- Simple notifications (email nudges)
+- Simple email nudges
 - Read-only Lofty sync
 - Agent-branded onboarding email
+- Brokerage-level shared vendor libraries
 
 ---
 
-### Explicit Non-Goals (for now)
+## Explicit Non-Goals
 
-- Buyer accounts / passwords
-- Messaging/chat
+- Buyer accounts/passwords
+- Real-time chat
 - Payments
-- Full CRM replacement
-- MLS data ingestion
+- Full CRM
+- MLS ingestion
 
-These are intentionally deferred to avoid overbuilding.
+These are intentionally out of scope.

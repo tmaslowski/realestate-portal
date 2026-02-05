@@ -13,12 +13,22 @@ export default function AgentSetup() {
 
   const [agent, setAgent] = useState(null);
   const [transactions, setTransactions] = useState([]);
-  const [favorites, setFavorites] = useState([]); // from /agent/session (may or may not include vendors)
+  const [favorites, setFavorites] = useState([]); // from /agent/session
 
   const [selectedId, setSelectedId] = useState("");
   const [txnData, setTxnData] = useState(null);
 
-  // editable basics
+  // New Transaction State
+  const [showCreateTxn, setShowCreateTxn] = useState(false);
+  const [newTxn, setNewTxn] = useState({
+    buyer_name: "",
+    buyer_email: "",
+    address: "",
+    closing_date: "",
+  });
+  const [creatingTxn, setCreatingTxn] = useState(false);
+
+  // Editable basics state
   const [address, setAddress] = useState("");
   const [closingDate, setClosingDate] = useState("");
   const [heroImageUrl, setHeroImageUrl] = useState("");
@@ -149,7 +159,61 @@ export default function AgentSetup() {
     loadTxn(selectedId);
   }, [selectedId, token]);
 
-  // 4) Save basics (PATCH)
+  // 4) Create Transaction (POST)
+  async function createTransaction() {
+    setCreatingTxn(true);
+    setErr("");
+    try {
+      const payload = {
+        buyer_name: newTxn.buyer_name.trim(),
+        buyer_email: newTxn.buyer_email.trim(),
+        address: newTxn.address.trim(),
+        closing_date: newTxn.closing_date || null,
+      };
+
+      const res = await fetch(
+        `${API_BASE}/agent/transaction/create/?t=${encodeURIComponent(token)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      const created = await res.json();
+      if (!res.ok)
+        throw new Error(created?.error || "Create transaction failed");
+
+      // Refresh session list
+      const resSession = await fetch(
+        `${API_BASE}/agent/session/?t=${encodeURIComponent(token)}`
+      );
+      const session = await resSession.json();
+
+      setAgent(session.agent || null);
+      setTransactions(session.transactions || []);
+      setFavorites(session.favorites || []);
+
+      // Select the newly created transaction
+      if (created.transaction?.id) {
+        setSelectedId(String(created.transaction.id));
+      }
+
+      // Close modal + reset
+      setShowCreateTxn(false);
+      setNewTxn({
+        buyer_name: "",
+        buyer_email: "",
+        address: "",
+        closing_date: "",
+      });
+    } catch (e) {
+      setErr(e.message || "Create transaction failed");
+    } finally {
+      setCreatingTxn(false);
+    }
+  }
+
+  // 5) Save basics (PATCH)
   async function saveBasics() {
     if (!selectedId) return;
 
@@ -188,7 +252,7 @@ export default function AgentSetup() {
     }
   }
 
-  // 5) Save vendors (POST)
+  // 6) Save vendors (POST)
   async function saveVendors() {
     if (!selectedId) return;
 
@@ -219,7 +283,7 @@ export default function AgentSetup() {
       setVendorsMsg("Saved ✓");
       setTimeout(() => setVendorsMsg(""), 2000);
 
-      // refresh txn payload (so the UI stays consistent)
+      // refresh txn payload
       const r2 = await fetch(
         `${API_BASE}/agent/transaction/${selectedId}/?t=${encodeURIComponent(
           token
@@ -228,7 +292,7 @@ export default function AgentSetup() {
       const j2 = await r2.json();
       setTxnData(j2);
 
-      // Also re-prefill (covers edge cases)
+      // re-prefill
       setClosingAttorneyId(
         j2?.closing_attorney?.id ? String(j2.closing_attorney.id) : ""
       );
@@ -242,7 +306,7 @@ export default function AgentSetup() {
     }
   }
 
-  // 6) Create new vendor (POST)
+  // 7) Create new vendor (POST)
   async function createVendor() {
     setVendorsError("");
     setVendorsMsg("");
@@ -375,10 +439,77 @@ export default function AgentSetup() {
             </div>
           ) : null}
 
-          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
-            Next: we’ll add “Create transaction” for agents. For the demo, you
-            can pre-create 1–3 transactions.
+          <div style={{ marginTop: 12 }}>
+            <button
+              onClick={() => setShowCreateTxn((p) => !p)}
+              style={btnSecondaryStyle}
+            >
+              {showCreateTxn ? "Cancel" : "+ Create Transaction"}
+            </button>
           </div>
+
+          {showCreateTxn ? (
+            <div
+              style={{
+                marginTop: 12,
+                padding: 12,
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(0,0,0,0.2)",
+              }}
+            >
+              <div style={{ fontWeight: 800, marginBottom: 10 }}>
+                New Transaction
+              </div>
+              <div style={{ display: "grid", gap: 10 }}>
+                <Field label="Buyer Name">
+                  <input
+                    value={newTxn.buyer_name}
+                    onChange={(e) =>
+                      setNewTxn((p) => ({ ...p, buyer_name: e.target.value }))
+                    }
+                    style={inputStyle}
+                  />
+                </Field>
+                <Field label="Buyer Email">
+                  <input
+                    value={newTxn.buyer_email}
+                    onChange={(e) =>
+                      setNewTxn((p) => ({ ...p, buyer_email: e.target.value }))
+                    }
+                    style={inputStyle}
+                  />
+                </Field>
+                <Field label="Address">
+                  <input
+                    value={newTxn.address}
+                    onChange={(e) =>
+                      setNewTxn((p) => ({ ...p, address: e.target.value }))
+                    }
+                    style={inputStyle}
+                  />
+                </Field>
+                <Field label="Closing Date">
+                  <input
+                    type="date"
+                    value={newTxn.closing_date}
+                    onChange={(e) =>
+                      setNewTxn((p) => ({ ...p, closing_date: e.target.value }))
+                    }
+                    style={inputStyle}
+                  />
+                </Field>
+
+                <button
+                  onClick={createTransaction}
+                  disabled={creatingTxn}
+                  style={btnPrimaryStyle(creatingTxn)}
+                >
+                  {creatingTxn ? "Creating..." : "Create"}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {/* Right: Basics + Vendors */}
@@ -454,7 +585,12 @@ export default function AgentSetup() {
           </div>
 
           <div
-            style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center" }}
+            style={{
+              marginTop: 14,
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+            }}
           >
             <button
               onClick={saveBasics}

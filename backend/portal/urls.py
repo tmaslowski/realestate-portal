@@ -14,4 +14,5 @@ urlpatterns = [
         "agent/transaction/<int:transaction_id>/vendors/",
         views.agent_set_transaction_vendors,
     ),
+    path("agent/transaction/create/", views.agent_transaction_create),
 ]

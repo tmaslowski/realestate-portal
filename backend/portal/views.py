@@ -2,7 +2,17 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 
-from .models import Transaction, PortalToken
+from .models import (
+    Agent,
+    AgentPortalToken,
+    Transaction,
+    PortalToken,
+    Utility,
+    Document,
+    Task,
+    TransactionVendor,
+    Vendor,
+)
 from .serializers import TransactionSerializer
 
 
@@ -66,6 +76,112 @@ def portal_session(request):
         for task in txn.tasks.all()
     ]
 
+
+def _get_agent_from_token(request):
+    token_value = request.query_params.get("t", "")
+    if not token_value:
+        return None, Response(
+            {"error": "missing token"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        at = AgentPortalToken.objects.select_related("agent").get(token=token_value)
+    except AgentPortalToken.DoesNotExist:
+        return None, Response(
+            {"error": "invalid token"}, status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    if not at.is_valid():
+        return None, Response(
+            {"error": "expired token"}, status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    return at.agent, None
+
+
+@api_view(["POST"])
+def invite_agent(request, agent_id):
+    """
+    Demo-friendly: returns an agent magic link instead of emailing it.
+    Later we can send via AWS SES.
+    """
+    try:
+        agent = Agent.objects.get(id=agent_id)
+    except Agent.DoesNotExist:
+        return Response({"error": "agent not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    token = AgentPortalToken.mint(agent, hours=72)
+    link = f"http://localhost:5173/agent?t={token.token}"
+
+    return Response(
+        {
+            "agent_id": agent.id,
+            "token": token.token,
+            "expires_at": token.expires_at,
+            "link": link,
+        }
+    )
+
+
+@api_view(["GET"])
+def agent_session(request):
+    """
+    Agent UI calls this with ?t=TOKEN
+    Returns the agent, their transactions, and their favorite vendors (for pickers).
+    """
+    agent, err = _get_agent_from_token(request)
+    if err:
+        return err
+
+    txns = (
+        Transaction.objects.select_related("buyer", "agent")
+        .filter(agent=agent)
+        .order_by("-created_at")
+    )
+
+    transactions = [
+        {
+            "id": txn.id,
+            "address": txn.address,
+            "status": txn.status,
+            "closing_date": txn.closing_date,
+            "buyer_name": txn.buyer.name,
+            "buyer_email": txn.buyer.email,
+        }
+        for txn in txns
+    ]
+
+    favorites = [
+        {
+            "id": v.id,
+            "category": v.category,
+            "category_label": v.get_category_display(),
+            "name": v.name,
+            "phone": v.phone,
+            "email": v.email,
+            "website": v.website,
+            "notes": v.notes,
+            "is_favorite": v.is_favorite,
+        }
+        for v in Vendor.objects.filter(agent=agent, is_favorite=True).order_by(
+            "category", "name"
+        )
+    ]
+
+    return Response(
+        {
+            "agent": {
+                "id": agent.id,
+                "name": agent.name,
+                "email": agent.email,
+                "photo_url": agent.photo_url,
+                "brokerage_logo_url": getattr(agent, "brokerage_logo_url", ""),
+            },
+            "transactions": transactions,
+            "favorites": favorites,
+        }
+    )
+
     utilities = [
         {
             "id": u.id,
@@ -91,6 +207,34 @@ def portal_session(request):
         for d in txn.documents.filter(visible_to_buyer=True).order_by("-uploaded_at")
     ]
 
+    closing_attorney = None
+    preferred_vendors = []
+
+    tv_qs = txn.transaction_vendors.select_related("vendor").all()
+
+    for tv in tv_qs:
+        v = tv.vendor
+        payload = {
+            "id": v.id,
+            "name": v.name,
+            "category": v.category,
+            "category_label": v.get_category_display(),
+            "phone": v.phone,
+            "email": v.email,
+            "website": v.website,
+            "notes": tv.notes_override or v.notes,
+            "is_favorite": v.is_favorite,
+        }
+        if tv.role == TransactionVendor.Role.CLOSING_ATTORNEY:
+            closing_attorney = payload
+        elif tv.role == TransactionVendor.Role.PREFERRED_VENDOR:
+            preferred_vendors.append(payload)
+
+    faqs = [
+        {"id": f.id, "q": f.question, "a": f.answer}
+        for f in txn.agent.faqs.filter(is_active=True).order_by("sort_order", "id")
+    ]
+
     return Response(
         {
             "buyer": {"name": txn.buyer.name, "email": txn.buyer.email},
@@ -105,6 +249,11 @@ def portal_session(request):
             "tasks": tasks,
             "utilities": utilities,
             "documents": documents,
+            "closing_attorney": closing_attorney,
+            "preferred_vendors": preferred_vendors,
+            "homestead_exemption_url": txn.homestead_exemption_url,
+            "review_url": txn.review_url,
+            "faqs": faqs,
         }
     )
 

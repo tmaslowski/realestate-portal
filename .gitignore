@@ -8,3 +8,15 @@
 # Node
 node_modules/
 dist/
+
+# --- Django ---
+backend/db.sqlite3
+backend/media/
+backend/.venv/
+
+# --- Node ---
+node_modules/
+frontend/node_modules/
+
+# --- OS ---
+.DS_Store

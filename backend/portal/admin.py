@@ -1,5 +1,16 @@
 from django.contrib import admin
-from .models import Agent, Buyer, Transaction, PortalToken, Utility, Document, Task
+from .models import (
+    Agent,
+    Buyer,
+    Transaction,
+    PortalToken,
+    Utility,
+    Document,
+    Task,
+    Vendor,
+    TransactionVendor,
+    AgentFAQ,
+)
 
 
 @admin.register(Agent)
@@ -12,21 +23,6 @@ class AgentAdmin(admin.ModelAdmin):
 class BuyerAdmin(admin.ModelAdmin):
     list_display = ("name", "email")
     search_fields = ("name", "email")
-
-
-@admin.register(Transaction)
-class TransactionAdmin(admin.ModelAdmin):
-    list_display = (
-        "id",
-        "address",
-        "status",
-        "closing_date",
-        "agent",
-        "buyer",
-        "lofty_transaction_id",
-    )
-    list_filter = ("status",)
-    search_fields = ("address", "agent__email", "buyer__email", "lofty_transaction_id")
 
 
 @admin.register(PortalToken)
@@ -62,3 +58,51 @@ class TaskAdmin(admin.ModelAdmin):
     list_filter = ("completed",)
     search_fields = ("title", "description")
     ordering = ("order",)
+
+
+class TransactionVendorInline(admin.TabularInline):
+    model = TransactionVendor
+    extra = 0
+    autocomplete_fields = ["vendor"]
+    fields = ("role", "vendor", "sort_order", "notes_override")
+    ordering = ("role", "sort_order")
+
+
+@admin.register(Vendor)
+class VendorAdmin(admin.ModelAdmin):
+    list_display = ("name", "agent", "category", "is_favorite", "phone", "website")
+    list_filter = ("category", "is_favorite")
+    search_fields = ("name", "phone", "email", "website", "notes")
+    autocomplete_fields = ("agent",)
+
+
+@admin.register(AgentFAQ)
+class AgentFAQAdmin(admin.ModelAdmin):
+    list_display = ("question", "agent", "is_active", "sort_order")
+    list_filter = ("is_active",)
+    search_fields = ("question", "answer")
+    autocomplete_fields = ("agent",)
+    ordering = ("agent", "sort_order")
+
+
+@admin.register(Transaction)
+class TransactionAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "address",
+        "status",
+        "closing_date",
+        "agent",
+        "buyer",
+        "lofty_transaction_id",
+    )
+    list_filter = ("status",)
+    search_fields = (
+        "address",
+        "agent__email",
+        "buyer__email",
+        "buyer__name",
+        "lofty_transaction_id",
+    )
+    autocomplete_fields = ("agent", "buyer")
+    inlines = [TransactionVendorInline]

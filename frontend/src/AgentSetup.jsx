@@ -37,6 +37,7 @@ export default function AgentSetup() {
 
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
+  const [myDocsUrl, setMyDocsUrl] = useState("");
 
   // ===== Vendors state =====
   const [vendorFavorites, setVendorFavorites] = useState([]);
@@ -150,6 +151,7 @@ export default function AgentSetup() {
         setPreferredVendorIds(
           new Set((data?.preferred_vendors || []).map((v) => String(v.id)))
         );
+        setMyDocsUrl(data.my_documents_url || "");
       } catch (e) {
         setErr(e.message || "Error loading transaction");
       }
@@ -235,6 +237,7 @@ export default function AgentSetup() {
             hero_image_url: heroImageUrl,
             homestead_exemption_url: homesteadUrl,
             review_url: reviewUrl,
+            my_documents_url: myDocsUrl,
           }),
         }
       );
@@ -581,6 +584,10 @@ export default function AgentSetup() {
                 onChange={(e) => setReviewUrl(e.target.value)}
                 style={inputStyle}
               />
+            </Field>
+
+            <Field label="My Documents (Google Drive folder link)">
+            <input value={myDocsUrl} onChange={(e) => setMyDocsUrl(e.target.value)} style={inputStyle} />
             </Field>
           </div>
 

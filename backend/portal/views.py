@@ -24,6 +24,59 @@ from .serializers import TransactionSerializer
 # -----------------------------
 # Buyer Portal (magic link)
 # -----------------------------
+# ---------- Defaults for new Transactions (demo-friendly templates) ----------
+
+DEFAULT_TASK_TEMPLATES = [
+    {
+        "title": "Schedule home inspection",
+        "description": "Coordinate with buyer + inspector.",
+        "order": 10,
+    },
+    {
+        "title": "Review inspection report",
+        "description": "Discuss repairs / concessions.",
+        "order": 20,
+    },
+    {
+        "title": "Confirm appraisal scheduled",
+        "description": "Lender will coordinate appraisal.",
+        "order": 30,
+    },
+    {
+        "title": "Shop homeowners insurance",
+        "description": "Buyer to bind policy before closing.",
+        "order": 40,
+    },
+    {
+        "title": "Set up utilities (power/water/internet)",
+        "description": "Transfer service effective on closing date.",
+        "order": 50,
+    },
+    {
+        "title": "Review Closing Disclosure (CD)",
+        "description": "Buyer signs and confirms cash-to-close.",
+        "order": 60,
+    },
+    {
+        "title": "Final walkthrough",
+        "description": "Confirm property condition before closing.",
+        "order": 70,
+    },
+    {
+        "title": "Bring ID + funds to closing",
+        "description": "Wire/Certified funds per attorney instructions.",
+        "order": 80,
+    },
+]
+
+DEFAULT_UTILITY_TEMPLATES = [
+    {"category": "power", "provider_name": "Power Company (add provider)"},
+    {"category": "water", "provider_name": "Water Company (add provider)"},
+    {"category": "gas", "provider_name": "Gas Company (if applicable)"},
+    {"category": "internet", "provider_name": "Internet Provider (add provider)"},
+    {"category": "trash", "provider_name": "Trash Service (if applicable)"},
+    {"category": "hoa", "provider_name": "HOA Contact (if applicable)"},
+]
 
 
 @api_view(["POST"])
@@ -110,7 +163,7 @@ def portal_session(request):
             "id": d.id,
             "title": d.title,
             "doc_type": d.doc_type,
-            "url": d.file.url,
+            "url": d.url,  # ✅ changed
             "uploaded_at": d.uploaded_at,
         }
         for d in txn.documents.filter(visible_to_buyer=True).order_by("-uploaded_at")
@@ -166,6 +219,7 @@ def portal_session(request):
             "homestead_exemption_url": getattr(txn, "homestead_exemption_url", ""),
             "review_url": getattr(txn, "review_url", ""),
             "faqs": faqs,
+            "my_documents_url": getattr(txn, "my_documents_url", ""),
         }
     )
 
@@ -323,6 +377,8 @@ def agent_transaction(request, transaction_id):
             txn.homestead_exemption_url = (
                 payload.get("homestead_exemption_url", "") or ""
             )
+        if "my_documents_url" in payload:
+            txn.my_documents_url = payload.get("my_documents_url", "") or ""
         if "review_url" in payload:
             txn.review_url = payload.get("review_url", "") or ""
 
@@ -359,7 +415,7 @@ def agent_transaction(request, transaction_id):
             "id": d.id,
             "title": d.title,
             "doc_type": d.doc_type,
-            "url": d.file.url,
+            "url": d.url,  # ✅ changed
             "uploaded_at": d.uploaded_at,
         }
         for d in txn.documents.filter(visible_to_buyer=True).order_by("-uploaded_at")
@@ -415,6 +471,7 @@ def agent_transaction(request, transaction_id):
             "homestead_exemption_url": getattr(txn, "homestead_exemption_url", ""),
             "review_url": getattr(txn, "review_url", ""),
             "faqs": faqs,
+            "my_documents_url": getattr(txn, "my_documents_url", ""),
         }
     )
 
@@ -561,18 +618,32 @@ def agent_set_transaction_vendors(request, transaction_id):
 
 
 @api_view(["POST"])
-@authentication_classes([])
-@permission_classes([AllowAny])
 def agent_transaction_create(request):
     """
     Create a new Transaction (and Buyer if needed) for the logged-in Agent.
     POST /api/portal/agent/transaction/create/?t=TOKEN
-    Body: { buyer_name, buyer_email, address, closing_date?, status?, hero_image_url? }
-    """
-    agent, err = _get_agent_from_token(request)
-    if err:
-        return err
 
+    Body: {
+      buyer_name, buyer_email, address,
+      closing_date?, status?,
+      hero_image_url?, homestead_exemption_url?, review_url?,
+      lofty_transaction_id?,
+      create_defaults?: true/false
+    }
+    """
+    token_value = request.query_params.get("t", "")
+    if not token_value:
+        return Response({"error": "missing token"}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        t = AgentPortalToken.objects.select_related("agent").get(token=token_value)
+    except AgentPortalToken.DoesNotExist:
+        return Response({"error": "invalid token"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    if not t.is_valid():
+        return Response({"error": "expired token"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    agent = t.agent
     data = request.data or {}
 
     buyer_name = (data.get("buyer_name") or "").strip()
@@ -592,6 +663,7 @@ def agent_transaction_create(request):
             {"error": "address is required"}, status=status.HTTP_400_BAD_REQUEST
         )
 
+    # create/reuse buyer (demo-friendly)
     buyer, _ = Buyer.objects.get_or_create(
         email=buyer_email,
         defaults={"name": buyer_name},
@@ -612,6 +684,40 @@ def agent_transaction_create(request):
         lofty_transaction_id=(data.get("lofty_transaction_id") or ""),
     )
 
+    # ✅ auto-create templates unless explicitly turned off
+    create_defaults = data.get("create_defaults", True)
+
+    if create_defaults:
+        # Tasks
+        Task.objects.bulk_create(
+            [
+                Task(
+                    transaction=txn,
+                    title=t["title"],
+                    description=t.get("description", ""),
+                    order=t.get("order", 0),
+                )
+                for t in DEFAULT_TASK_TEMPLATES
+            ]
+        )
+
+        # Utilities (placeholders that the agent can replace)
+        Utility.objects.bulk_create(
+            [
+                Utility(
+                    transaction=txn,
+                    category=u["category"],
+                    provider_name=u["provider_name"],
+                    phone="",
+                    website="",
+                    account_number_hint="",
+                    notes="",
+                    due_date=None,
+                )
+                for u in DEFAULT_UTILITY_TEMPLATES
+            ]
+        )
+
     return Response(
         {
             "transaction": {
@@ -621,20 +727,63 @@ def agent_transaction_create(request):
                 "closing_date": txn.closing_date,
                 "buyer_name": txn.buyer.name,
                 "buyer_email": txn.buyer.email,
-            }
+            },
+            "created_defaults": bool(create_defaults),
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+    # ✅ auto-create templates unless explicitly turned off
+    create_defaults = data.get("create_defaults", True)
+
+    if create_defaults:
+        # Tasks
+        Task.objects.bulk_create(
+            [
+                Task(
+                    transaction=txn,
+                    title=t["title"],
+                    description=t.get("description", ""),
+                    order=t.get("order", 0),
+                )
+                for t in DEFAULT_TASK_TEMPLATES
+            ]
+        )
+
+        # Utilities (placeholders that the agent can replace)
+        Utility.objects.bulk_create(
+            [
+                Utility(
+                    transaction=txn,
+                    category=u["category"],
+                    provider_name=u["provider_name"],
+                    phone="",
+                    website="",
+                    account_number_hint="",
+                    notes="",
+                    due_date=None,
+                )
+                for u in DEFAULT_UTILITY_TEMPLATES
+            ]
+        )
+
+    return Response(
+        {
+            "transaction": {
+                "id": txn.id,
+                "address": txn.address,
+                "status": txn.status,
+                "closing_date": txn.closing_date,
+                "buyer_name": txn.buyer.name,
+                "buyer_email": txn.buyer.email,
+            },
+            "created_defaults": bool(create_defaults),
         },
         status=status.HTTP_201_CREATED,
     )
 
 
-# -----------------------------
-# Buyer task toggle (buyer UI)
-# -----------------------------
-
-
 @api_view(["POST"])
-@authentication_classes([])
-@permission_classes([AllowAny])
 def toggle_task(request, task_id):
     try:
         task = Task.objects.get(id=task_id)

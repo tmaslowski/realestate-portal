@@ -48,8 +48,8 @@ class DocumentAdmin(admin.ModelAdmin):
         "visible_to_buyer",
         "uploaded_at",
     )
-    list_filter = ("doc_type", "visible_to_buyer")
-    search_fields = ("title", "doc_type")
+    search_fields = ("title", "doc_type", "transaction__address")
+    list_filter = ("visible_to_buyer", "doc_type")
 
 
 @admin.register(Task)

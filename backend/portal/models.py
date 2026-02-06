@@ -37,6 +37,7 @@ class Transaction(models.Model):
     hero_image_url = models.URLField(blank=True, default="")
     homestead_exemption_url = models.URLField(blank=True, default="")
     review_url = models.URLField(blank=True, default="")
+    my_documents_url = models.URLField(blank=True, default="")
 
     # Optional: future Lofty mapping
     lofty_transaction_id = models.CharField(max_length=64, blank=True, default="")
@@ -124,10 +125,9 @@ class Document(models.Model):
         Transaction, on_delete=models.CASCADE, related_name="documents"
     )
 
-    title = models.CharField(max_length=200)
-    file = models.FileField(upload_to="documents/")
+    title = models.CharField(max_length=200, default="My Documents")
+    url = models.URLField(blank=True, default="")  # ✅ URL instead of FileField
     uploaded_at = models.DateTimeField(auto_now_add=True)
-    hero_image_url = models.URLField(blank=True, default="")
 
     # Optional metadata
     doc_type = models.CharField(max_length=80, blank=True, default="")

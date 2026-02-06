@@ -43,6 +43,14 @@ function BuyerPortal() {
 
   const [session, setSession] = useState(null);
   const [error, setError] = useState("");
+  // Forces re-render so countdown stays accurate if the page stays open.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  useEffect(() => {
+  // Update every 10 minutes (cheap + good enough)
+  const id = setInterval(() => setNowTick(Date.now()), 10 * 60 * 1000);
+  return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -193,12 +201,22 @@ function BuyerPortal() {
             }}
           >
             {d.transaction?.closing_date ? (
-              (() => {
-                const now = new Date();
-                const closing = new Date(`${d.transaction.closing_date}T23:59:59`);
-                const msPerDay = 1000 * 60 * 60 * 24;
-                const diffMs = closing.getTime() - now.getTime();
-                const days = Math.ceil(diffMs / msPerDay);
+              (() => {const now = new Date(nowTick);
+
+                // calendar-day diff (midnight UTC to midnight UTC)
+                const [y, m, dd] = d.transaction.closing_date.split("-").map(Number);
+                
+                const todayUtcMidnight = Date.UTC(
+                  now.getUTCFullYear(),
+                  now.getUTCMonth(),
+                  now.getUTCDate()
+                );
+                
+                const closingUtcMidnight = Date.UTC(y, m - 1, dd);
+                
+                const msPerDay = 24 * 60 * 60 * 1000;
+                const days = Math.max(0, Math.round((closingUtcMidnight - todayUtcMidnight) / msPerDay));
+
 
                 const headline = days > 0 ? `${days}` : "0";
                 const sub =
@@ -330,54 +348,6 @@ function BuyerPortal() {
             <span className="label">Closing Date</span>
             <span className="value">{fmtDate(d.transaction.closing_date)}</span>
           </div>
-        </div>
-
-        {/* Documents */}
-        <div className="card">
-          <div className="cardTitle">Documents</div>
-          {d.documents?.length ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {d.documents.map((doc) => (
-                <div
-                  key={doc.id}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 12,
-                    paddingTop: 8,
-                    borderTop: "1px solid rgba(255,255,255,0.08)",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{doc.title}</div>
-                    {doc.doc_type && (
-                      <div style={{ fontSize: 12, opacity: 0.75 }}>{doc.doc_type}</div>
-                    )}
-                  </div>
-
-                  <a
-                    href={`http://127.0.0.1:8000${doc.url}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      fontSize: 13,
-                      textDecoration: "none",
-                      padding: "6px 10px",
-                      borderRadius: 8,
-                      background: "rgba(255,255,255,0.08)",
-                      color: "#e9eefc",
-                      border: "1px solid rgba(255,255,255,0.12)",
-                    }}
-                  >
-                    View
-                  </a>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="muted">No documents uploaded yet.</div>
-          )}
         </div>
 
         {/* Closing Attorney */}
@@ -519,12 +489,12 @@ function BuyerPortal() {
         <div className="card">
           <div className="cardTitle">Helpful Links</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {/* Homestead */}
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 650 }}>Homestead Exemption</div>
                 <div className="muted">File after closing (varies by county/state)</div>
               </div>
-
               {d.homestead_exemption_url ? (
                 <a href={d.homestead_exemption_url} target="_blank" rel="noreferrer" className="btn">
                   Open
@@ -536,15 +506,37 @@ function BuyerPortal() {
 
             <div style={{ height: 1, background: "rgba(255,255,255,0.08)" }} />
 
+            {/* Review */}
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
               <div>
                 <div style={{ fontWeight: 650 }}>Leave a Review</div>
                 <div className="muted">If you enjoyed working with your agent</div>
               </div>
-
               {d.review_url ? (
                 <a href={d.review_url} target="_blank" rel="noreferrer" className="btn">
                   Review
+                </a>
+              ) : (
+                <div className="muted">Not set</div>
+              )}
+            </div>
+
+            <div style={{ height: 1, background: "rgba(255,255,255,0.08)" }} />
+
+            {/* My Documents */}
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+              <div>
+                <div style={{ fontWeight: 650 }}>My Documents</div>
+                <div className="muted">Your shared folder for contracts and reports</div>
+              </div>
+              {d.my_documents_url ? (
+                <a
+                  href={d.my_documents_url.startsWith("http") ? d.my_documents_url : `https://${d.my_documents_url}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn"
+                >
+                  Open
                 </a>
               ) : (
                 <div className="muted">Not set</div>

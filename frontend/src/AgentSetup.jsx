@@ -13,39 +13,39 @@ export default function AgentSetup() {
 
   const [agent, setAgent] = useState(null);
   const [transactions, setTransactions] = useState([]);
-  const [favorites, setFavorites] = useState([]); // from /agent/session
-
   const [selectedId, setSelectedId] = useState("");
+
   const [txnData, setTxnData] = useState(null);
 
-  // New Transaction State
+  // ---- Basics ----
+  const [address, setAddress] = useState("");
+  const [closingDate, setClosingDate] = useState("");
+  const [heroImageUrl, setHeroImageUrl] = useState("");
+  const [homesteadUrl, setHomesteadUrl] = useState("");
+  const [reviewUrl, setReviewUrl] = useState("");
+  const [myDocsUrl, setMyDocsUrl] = useState("");
+
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState("");
+
+  // ---- Create Transaction ----
   const [showCreateTxn, setShowCreateTxn] = useState(false);
+  const [creatingTxn, setCreatingTxn] = useState(false);
   const [newTxn, setNewTxn] = useState({
     buyer_name: "",
     buyer_email: "",
     address: "",
     closing_date: "",
   });
-  const [creatingTxn, setCreatingTxn] = useState(false);
 
-  // Editable basics state
-  const [address, setAddress] = useState("");
-  const [closingDate, setClosingDate] = useState("");
-  const [heroImageUrl, setHeroImageUrl] = useState("");
-  const [homesteadUrl, setHomesteadUrl] = useState("");
-  const [reviewUrl, setReviewUrl] = useState("");
-
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState("");
-  const [myDocsUrl, setMyDocsUrl] = useState("");
-
-  // ===== Vendors state =====
+  // ---- Vendors ----
   const [vendorFavorites, setVendorFavorites] = useState([]);
   const [vendorsLoading, setVendorsLoading] = useState(false);
   const [vendorsError, setVendorsError] = useState("");
 
   const [closingAttorneyId, setClosingAttorneyId] = useState("");
-  const [preferredVendorIds, setPreferredVendorIds] = useState(new Set()); // strings
+  const [preferredVendorIds, setPreferredVendorIds] = useState(new Set());
+  const [utilityVendorIds, setUtilityVendorIds] = useState(new Set());
 
   const [vendorsSaving, setVendorsSaving] = useState(false);
   const [vendorsMsg, setVendorsMsg] = useState("");
@@ -61,173 +61,103 @@ export default function AgentSetup() {
     is_favorite: true,
   });
 
-  // 1) Load agent session
+  // =========================
+  // Load agent session
+  // =========================
   useEffect(() => {
     async function loadSession() {
       setLoading(true);
       setErr("");
-
       try {
-        const res = await fetch(
-          `${API_BASE}/agent/session/?t=${encodeURIComponent(token)}`
-        );
-        const data = await res.json();
-        if (!res.ok)
-          throw new Error(data?.error || "Failed to load agent session");
+        const r = await fetch(`${API_BASE}/agent/session/?t=${encodeURIComponent(token)}`);
+        const j = await r.json();
+        if (!r.ok) throw new Error(j?.error || "Failed to load agent session");
 
-        setAgent(data.agent || null);
-        setTransactions(data.transactions || []);
-        setFavorites(data.favorites || []);
+        setAgent(j.agent);
+        setTransactions(j.transactions || []);
 
-        if ((data.transactions || []).length) {
-          setSelectedId(String(data.transactions[0].id));
+        if (j.transactions?.length) {
+          setSelectedId(String(j.transactions[0].id));
         }
       } catch (e) {
-        setErr(e.message || "Error loading session");
+        setErr(e.message);
       } finally {
         setLoading(false);
       }
     }
 
-    if (!token) {
-      setErr("Missing agent token. Use the invite link that includes ?t=...");
-      setLoading(false);
-      return;
-    }
-
-    loadSession();
+    if (token) loadSession();
   }, [token]);
 
-  // 2) Load favorite vendors
+  // =========================
+  // Load vendor favorites
+  // =========================
   useEffect(() => {
     async function loadVendors() {
       setVendorsLoading(true);
-      setVendorsError("");
       try {
-        const r = await fetch(
-          `${API_BASE}/agent/vendors/?t=${encodeURIComponent(token)}`
-        );
+        const r = await fetch(`${API_BASE}/agent/vendors/?t=${encodeURIComponent(token)}`);
         const j = await r.json();
         if (!r.ok) throw new Error(j?.error || "Failed to load vendors");
         setVendorFavorites(j.favorites || []);
       } catch (e) {
-        setVendorsError(e.message || "Failed to load vendors");
+        setVendorsError(e.message);
       } finally {
         setVendorsLoading(false);
       }
     }
-    if (!token) return;
-    loadVendors();
+
+    if (token) loadVendors();
   }, [token]);
 
-  // 3) Load selected transaction details
+  // =========================
+  // Load selected transaction
+  // =========================
   useEffect(() => {
-    async function loadTxn(id) {
-      setTxnData(null);
-      setSaveMsg("");
+    async function loadTxn() {
       setErr("");
-
       try {
-        const res = await fetch(
-          `${API_BASE}/agent/transaction/${id}/?t=${encodeURIComponent(token)}`
+        const r = await fetch(
+          `${API_BASE}/agent/transaction/${selectedId}/?t=${encodeURIComponent(token)}`
         );
-        const data = await res.json();
-        if (!res.ok)
-          throw new Error(data?.error || "Failed to load transaction");
+        const j = await r.json();
+        if (!r.ok) throw new Error(j?.error || "Failed to load transaction");
 
-        setTxnData(data);
+        setTxnData(j);
 
-        // Basics
-        setAddress(data.transaction?.address || "");
-        setClosingDate(data.transaction?.closing_date || "");
-        setHeroImageUrl(data.property?.hero_image_url || "");
-        setHomesteadUrl(data.homestead_exemption_url || "");
-        setReviewUrl(data.review_url || "");
+        setAddress(j.transaction?.address || "");
+        setClosingDate(j.transaction?.closing_date || "");
+        setHeroImageUrl(j.property?.hero_image_url || "");
+        setHomesteadUrl(j.homestead_exemption_url || "");
+        setReviewUrl(j.review_url || "");
+        setMyDocsUrl(j.my_documents_url || "");
 
-        // Vendors: prefill from payload
-        setClosingAttorneyId(
-          data?.closing_attorney?.id ? String(data.closing_attorney.id) : ""
-        );
+        setClosingAttorneyId(j.closing_attorney?.id ? String(j.closing_attorney.id) : "");
+
         setPreferredVendorIds(
-          new Set((data?.preferred_vendors || []).map((v) => String(v.id)))
+          new Set((j.preferred_vendors || []).map(v => String(v.id)))
         );
-        setMyDocsUrl(data.my_documents_url || "");
+
+        setUtilityVendorIds(
+          new Set((j.utility_providers || []).map(v => String(v.id)))
+        );
       } catch (e) {
-        setErr(e.message || "Error loading transaction");
+        setErr(e.message);
       }
     }
 
-    if (!selectedId) return;
-    loadTxn(selectedId);
+    if (selectedId) loadTxn();
   }, [selectedId, token]);
 
-  // 4) Create Transaction (POST)
-  async function createTransaction() {
-    setCreatingTxn(true);
-    setErr("");
-    try {
-      const payload = {
-        buyer_name: newTxn.buyer_name.trim(),
-        buyer_email: newTxn.buyer_email.trim(),
-        address: newTxn.address.trim(),
-        closing_date: newTxn.closing_date || null,
-      };
-
-      const res = await fetch(
-        `${API_BASE}/agent/transaction/create/?t=${encodeURIComponent(token)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }
-      );
-      const created = await res.json();
-      if (!res.ok)
-        throw new Error(created?.error || "Create transaction failed");
-
-      // Refresh session list
-      const resSession = await fetch(
-        `${API_BASE}/agent/session/?t=${encodeURIComponent(token)}`
-      );
-      const session = await resSession.json();
-
-      setAgent(session.agent || null);
-      setTransactions(session.transactions || []);
-      setFavorites(session.favorites || []);
-
-      // Select the newly created transaction
-      if (created.transaction?.id) {
-        setSelectedId(String(created.transaction.id));
-      }
-
-      // Close modal + reset
-      setShowCreateTxn(false);
-      setNewTxn({
-        buyer_name: "",
-        buyer_email: "",
-        address: "",
-        closing_date: "",
-      });
-    } catch (e) {
-      setErr(e.message || "Create transaction failed");
-    } finally {
-      setCreatingTxn(false);
-    }
-  }
-
-  // 5) Save basics (PATCH)
+  // =========================
+  // Save basics
+  // =========================
   async function saveBasics() {
-    if (!selectedId) return;
-
     setSaving(true);
     setSaveMsg("");
-    setErr("");
-
     try {
-      const res = await fetch(
-        `${API_BASE}/agent/transaction/${selectedId}/?t=${encodeURIComponent(
-          token
-        )}`,
+      const r = await fetch(
+        `${API_BASE}/agent/transaction/${selectedId}/?t=${encodeURIComponent(token)}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -242,683 +172,231 @@ export default function AgentSetup() {
         }
       );
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Save failed");
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error || "Save failed");
 
-      setTxnData(data);
       setSaveMsg("Saved ✓");
-      setTimeout(() => setSaveMsg(""), 2500);
     } catch (e) {
-      setErr(e.message || "Save failed");
+      setErr(e.message);
     } finally {
       setSaving(false);
     }
   }
 
-  // 6) Save vendors (POST)
+  // =========================
+  // Save vendors + utilities
+  // =========================
   async function saveVendors() {
-    if (!selectedId) return;
-
     setVendorsSaving(true);
     setVendorsMsg("");
-    setVendorsError("");
-
     try {
-      const r = await fetch(
-        `${API_BASE}/agent/transaction/${selectedId}/vendors/?t=${encodeURIComponent(
-          token
-        )}`,
+      await fetch(
+        `${API_BASE}/agent/transaction/${selectedId}/vendors/?t=${encodeURIComponent(token)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            closing_attorney_vendor_id: closingAttorneyId
-              ? Number(closingAttorneyId)
-              : null,
+            closing_attorney_vendor_id: closingAttorneyId ? Number(closingAttorneyId) : null,
             preferred_vendor_ids: Array.from(preferredVendorIds).map(Number),
           }),
         }
       );
 
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error || "Failed to save vendors");
+      await fetch(
+        `${API_BASE}/agent/transaction/${selectedId}/utilities/set/?t=${encodeURIComponent(token)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            utility_vendor_ids: Array.from(utilityVendorIds).map(Number),
+          }),
+        }
+      );
 
       setVendorsMsg("Saved ✓");
-      setTimeout(() => setVendorsMsg(""), 2000);
-
-      // refresh txn payload
-      const r2 = await fetch(
-        `${API_BASE}/agent/transaction/${selectedId}/?t=${encodeURIComponent(
-          token
-        )}`
-      );
-      const j2 = await r2.json();
-      setTxnData(j2);
-
-      // re-prefill
-      setClosingAttorneyId(
-        j2?.closing_attorney?.id ? String(j2.closing_attorney.id) : ""
-      );
-      setPreferredVendorIds(
-        new Set((j2?.preferred_vendors || []).map((v) => String(v.id)))
-      );
     } catch (e) {
-      setVendorsError(e.message || "Failed to save vendors");
+      setVendorsError(e.message);
     } finally {
       setVendorsSaving(false);
     }
   }
 
-  // 7) Create new vendor (POST)
-  async function createVendor() {
-    setVendorsError("");
-    setVendorsMsg("");
-
-    if (!newVendor.name.trim()) {
-      setVendorsError("Vendor name is required.");
-      return;
-    }
-
+  // =========================
+  // Create transaction
+  // =========================
+  async function createTransaction() {
+    setCreatingTxn(true);
     try {
       const r = await fetch(
-        `${API_BASE}/agent/vendor/create/?t=${encodeURIComponent(token)}`,
+        `${API_BASE}/agent/transaction/create/?t=${encodeURIComponent(token)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(newVendor),
+          body: JSON.stringify(newTxn),
         }
       );
-
       const j = await r.json();
-      if (!r.ok) throw new Error(j?.error || "Failed to create vendor");
+      if (!r.ok) throw new Error(j?.error || "Create failed");
 
-      // reload favorites
-      const r2 = await fetch(
-        `${API_BASE}/agent/vendors/?t=${encodeURIComponent(token)}`
-      );
-      const j2 = await r2.json();
-      setVendorFavorites(j2.favorites || []);
+      setShowCreateTxn(false);
+      setNewTxn({ buyer_name: "", buyer_email: "", address: "", closing_date: "" });
 
-      setVendorsMsg("Vendor created ✓");
-      setTimeout(() => setVendorsMsg(""), 2000);
-
-      setShowCreateVendor(false);
-      setNewVendor({
-        name: "",
-        category: "closing_attorney",
-        phone: "",
-        email: "",
-        website: "",
-        notes: "",
-        is_favorite: true,
-      });
+      const rs = await fetch(`${API_BASE}/agent/session/?t=${encodeURIComponent(token)}`);
+      const js = await rs.json();
+      setTransactions(js.transactions || []);
+      setSelectedId(String(j.transaction.id));
     } catch (e) {
-      setVendorsError(e.message || "Failed to create vendor");
+      setErr(e.message);
+    } finally {
+      setCreatingTxn(false);
     }
   }
 
+  // =========================
+  // UI
+  // =========================
   return (
     <div style={{ maxWidth: 1100, margin: "24px auto", padding: "0 16px" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 16,
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 22, fontWeight: 800 }}>Agent Setup</div>
-          <div style={{ opacity: 0.75, fontSize: 13 }}>
-            Edit a transaction without Django admin
-          </div>
-        </div>
+      <h2>Agent Setup</h2>
 
-        {agent ? (
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            {agent.brokerage_logo_url ? (
-              <img
-                src={agent.brokerage_logo_url}
-                alt="Brokerage"
-                style={{ height: 28, objectFit: "contain" }}
-              />
-            ) : null}
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontWeight: 650 }}>{agent.name}</div>
-              <div style={{ fontSize: 12, opacity: 0.75 }}>{agent.email}</div>
-            </div>
-          </div>
-        ) : null}
-      </div>
+      {err && <div style={{ color: "#ffb4b4", marginBottom: 12 }}>{err}</div>}
 
-      <div
-        style={{
-          marginTop: 18,
-          display: "grid",
-          gridTemplateColumns: "320px 1fr",
-          gap: 16,
-        }}
-      >
-        {/* Left: picker */}
-        <div
-          style={{
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 14,
-            padding: 14,
-            background: "rgba(255,255,255,0.04)",
-          }}
-        >
-          <div style={{ fontWeight: 750, marginBottom: 8 }}>Transactions</div>
-
-          {loading ? (
-            <div style={{ opacity: 0.75 }}>Loading…</div>
-          ) : transactions.length ? (
-            <select
-              value={selectedId}
-              onChange={(e) => setSelectedId(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "10px 10px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.16)",
-                background: "rgba(0,0,0,0.25)",
-                color: "inherit",
-              }}
-            >
-              {transactions.map((t) => (
-                <option key={t.id} value={t.id}>
-                  #{t.id} — {t.address}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <div style={{ opacity: 0.75 }}>No transactions yet.</div>
-          )}
-
-          {err ? (
-            <div style={{ marginTop: 10, color: "#ffb4b4", fontSize: 13 }}>
-              {err}
-            </div>
-          ) : null}
-
-          <div style={{ marginTop: 12 }}>
-            <button
-              onClick={() => setShowCreateTxn((p) => !p)}
-              style={btnSecondaryStyle}
-            >
-              {showCreateTxn ? "Cancel" : "+ Create Transaction"}
-            </button>
-          </div>
-
-          {showCreateTxn ? (
-            <div
-              style={{
-                marginTop: 12,
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.12)",
-                background: "rgba(0,0,0,0.2)",
-              }}
-            >
-              <div style={{ fontWeight: 800, marginBottom: 10 }}>
-                New Transaction
-              </div>
-              <div style={{ display: "grid", gap: 10 }}>
-                <Field label="Buyer Name">
-                  <input
-                    value={newTxn.buyer_name}
-                    onChange={(e) =>
-                      setNewTxn((p) => ({ ...p, buyer_name: e.target.value }))
-                    }
-                    style={inputStyle}
-                  />
-                </Field>
-                <Field label="Buyer Email">
-                  <input
-                    value={newTxn.buyer_email}
-                    onChange={(e) =>
-                      setNewTxn((p) => ({ ...p, buyer_email: e.target.value }))
-                    }
-                    style={inputStyle}
-                  />
-                </Field>
-                <Field label="Address">
-                  <input
-                    value={newTxn.address}
-                    onChange={(e) =>
-                      setNewTxn((p) => ({ ...p, address: e.target.value }))
-                    }
-                    style={inputStyle}
-                  />
-                </Field>
-                <Field label="Closing Date">
-                  <input
-                    type="date"
-                    value={newTxn.closing_date}
-                    onChange={(e) =>
-                      setNewTxn((p) => ({ ...p, closing_date: e.target.value }))
-                    }
-                    style={inputStyle}
-                  />
-                </Field>
-
-                <button
-                  onClick={createTransaction}
-                  disabled={creatingTxn}
-                  style={btnPrimaryStyle(creatingTxn)}
-                >
-                  {creatingTxn ? "Creating..." : "Create"}
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-
-        {/* Right: Basics + Vendors */}
-        <div
-          style={{
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 14,
-            padding: 16,
-            background: "rgba(255,255,255,0.04)",
-          }}
-        >
-          {/* Basics */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 12,
-              alignItems: "center",
-            }}
-          >
-            <div style={{ fontWeight: 800, fontSize: 16 }}>Basics</div>
-            <div style={{ fontSize: 13, opacity: 0.8 }}>{saveMsg}</div>
-          </div>
-
-          <div
-            style={{
-              marginTop: 14,
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 12,
-            }}
-          >
-            <Field label="Property address">
-              <input
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                style={inputStyle}
-              />
-            </Field>
-
-            <Field label="Closing date">
-              <input
-                type="date"
-                value={closingDate || ""}
-                onChange={(e) => setClosingDate(e.target.value)}
-                style={inputStyle}
-              />
-            </Field>
-
-            <Field label="Hero image URL">
-              <input
-                value={heroImageUrl}
-                onChange={(e) => setHeroImageUrl(e.target.value)}
-                style={inputStyle}
-              />
-            </Field>
-
-            <Field label="Homestead exemption link">
-              <input
-                value={homesteadUrl}
-                onChange={(e) => setHomesteadUrl(e.target.value)}
-                style={inputStyle}
-              />
-            </Field>
-
-            <Field label="Review link">
-              <input
-                value={reviewUrl}
-                onChange={(e) => setReviewUrl(e.target.value)}
-                style={inputStyle}
-              />
-            </Field>
-
-            <Field label="My Documents (Google Drive folder link)">
-            <input value={myDocsUrl} onChange={(e) => setMyDocsUrl(e.target.value)} style={inputStyle} />
-            </Field>
-          </div>
-
-          <div
-            style={{
-              marginTop: 14,
-              display: "flex",
-              gap: 10,
-              alignItems: "center",
-            }}
-          >
-            <button
-              onClick={saveBasics}
-              disabled={!selectedId || saving}
-              style={btnPrimaryStyle(!selectedId || saving)}
-            >
-              {saving ? "Saving…" : "Save Basics"}
-            </button>
-
-            <div style={{ fontSize: 12, opacity: 0.75 }}>
-              {txnData ? "Loaded transaction details." : "Loading…"}
-            </div>
-          </div>
-
-          {/* Vendors */}
-          <div
-            style={{
-              marginTop: 18,
-              borderTop: "1px solid rgba(255,255,255,0.10)",
-              paddingTop: 16,
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
-              }}
-            >
-              <div style={{ fontWeight: 800, fontSize: 16 }}>Vendors</div>
-              <div style={{ fontSize: 13, opacity: 0.85 }}>{vendorsMsg}</div>
-            </div>
-
-            {vendorsError ? (
-              <div style={{ marginTop: 10, color: "#ffb4b4", fontSize: 13 }}>
-                {vendorsError}
-              </div>
-            ) : null}
-
-            {vendorsLoading ? (
-              <div style={{ marginTop: 10, opacity: 0.75 }}>
-                Loading vendor favorites…
-              </div>
-            ) : (
-              <div
-                style={{
-                  marginTop: 12,
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 12,
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
-                    Closing Attorney (favorite)
-                  </div>
-                  <select
-                    value={closingAttorneyId}
-                    onChange={(e) => setClosingAttorneyId(e.target.value)}
-                    style={inputStyle}
-                  >
-                    <option value="">— Select —</option>
-                    {vendorFavorites
-                      .filter((v) => v.category === "closing_attorney")
-                      .map((v) => (
-                        <option key={v.id} value={String(v.id)}>
-                          {v.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
-                    Preferred Vendors (favorites)
-                  </div>
-
-                  <div
-                    style={{
-                      border: "1px solid rgba(255,255,255,0.16)",
-                      borderRadius: 10,
-                      padding: 10,
-                      background: "rgba(0,0,0,0.25)",
-                      maxHeight: 220,
-                      overflow: "auto",
-                    }}
-                  >
-                    {vendorFavorites
-                      .filter((v) => v.category !== "closing_attorney")
-                      .map((v) => {
-                        const sid = String(v.id);
-                        const checked = preferredVendorIds.has(sid);
-                        return (
-                          <label
-                            key={v.id}
-                            style={{
-                              display: "flex",
-                              gap: 10,
-                              alignItems: "center",
-                              padding: "6px 0",
-                            }}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => {
-                                setPreferredVendorIds((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(sid)) next.delete(sid);
-                                  else next.add(sid);
-                                  return next;
-                                });
-                              }}
-                            />
-                            <span style={{ fontWeight: 650 }}>{v.name}</span>
-                            <span style={{ fontSize: 12, opacity: 0.7 }}>
-                              ({v.category_label})
-                            </span>
-                          </label>
-                        );
-                      })}
-
-                    {!vendorFavorites.length ? (
-                      <div style={{ opacity: 0.75 }}>No favorites yet.</div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div
-              style={{
-                marginTop: 12,
-                display: "flex",
-                gap: 10,
-                alignItems: "center",
-                flexWrap: "wrap",
-              }}
-            >
-              <button
-                onClick={saveVendors}
-                disabled={!selectedId || vendorsSaving}
-                style={btnPrimaryStyle(!selectedId || vendorsSaving)}
-              >
-                {vendorsSaving ? "Saving…" : "Save Vendors"}
+      <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 16 }}>
+        {/* Transactions */}
+        <div style={card}>
+          <strong>Transactions</strong>
+          {loading ? "Loading…" : (
+            <>
+              <select value={selectedId} onChange={e => setSelectedId(e.target.value)} style={input}>
+                {transactions.map(t => (
+                  <option key={t.id} value={t.id}>#{t.id} — {t.address}</option>
+                ))}
+              </select>
+              <button style={btnSecondary} onClick={() => setShowCreateTxn(v => !v)}>
+                {showCreateTxn ? "Cancel" : "+ Create Transaction"}
               </button>
 
-              <button
-                onClick={() => setShowCreateVendor((v) => !v)}
-                style={btnSecondaryStyle}
-              >
-                {showCreateVendor ? "Close" : "Add New Vendor"}
-              </button>
-            </div>
-
-            {showCreateVendor ? (
-              <div
-                style={{
-                  marginTop: 12,
-                  padding: 12,
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,0.12)",
-                }}
-              >
-                <div style={{ fontWeight: 800, marginBottom: 10 }}>
-                  Create Vendor
-                </div>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: 12,
-                  }}
-                >
-                  <Field label="Name">
-                    <input
-                      value={newVendor.name}
-                      onChange={(e) =>
-                        setNewVendor((p) => ({ ...p, name: e.target.value }))
-                      }
-                      style={inputStyle}
-                    />
-                  </Field>
-
-                  <Field label="Category">
-                    <select
-                      value={newVendor.category}
-                      onChange={(e) =>
-                        setNewVendor((p) => ({
-                          ...p,
-                          category: e.target.value,
-                        }))
-                      }
-                      style={inputStyle}
-                    >
-                      <option value="closing_attorney">Closing Attorney</option>
-                      <option value="lender">Lender</option>
-                      <option value="inspector">Inspector</option>
-                      <option value="appraiser">Appraiser</option>
-                      <option value="plumber">Plumber</option>
-                      <option value="electrician">Electrician</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </Field>
-
-                  <Field label="Phone">
-                    <input
-                      value={newVendor.phone}
-                      onChange={(e) =>
-                        setNewVendor((p) => ({ ...p, phone: e.target.value }))
-                      }
-                      style={inputStyle}
-                    />
-                  </Field>
-
-                  <Field label="Email">
-                    <input
-                      value={newVendor.email}
-                      onChange={(e) =>
-                        setNewVendor((p) => ({ ...p, email: e.target.value }))
-                      }
-                      style={inputStyle}
-                    />
-                  </Field>
-
-                  <Field label="Website">
-                    <input
-                      value={newVendor.website}
-                      onChange={(e) =>
-                        setNewVendor((p) => ({ ...p, website: e.target.value }))
-                      }
-                      style={inputStyle}
-                    />
-                  </Field>
-
-                  <Field label="Notes">
-                    <input
-                      value={newVendor.notes}
-                      onChange={(e) =>
-                        setNewVendor((p) => ({ ...p, notes: e.target.value }))
-                      }
-                      style={inputStyle}
-                    />
-                  </Field>
-
-                  <label
-                    style={{
-                      display: "flex",
-                      gap: 10,
-                      alignItems: "center",
-                      marginTop: 6,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={!!newVendor.is_favorite}
-                      onChange={(e) =>
-                        setNewVendor((p) => ({
-                          ...p,
-                          is_favorite: e.target.checked,
-                        }))
-                      }
-                    />
-                    <span style={{ fontSize: 13, opacity: 0.85 }}>
-                      Save as favorite
-                    </span>
-                  </label>
-                </div>
-
+              {showCreateTxn && (
                 <div style={{ marginTop: 12 }}>
-                  <button onClick={createVendor} style={btnSecondaryStyle}>
-                    Create Vendor
+                  {["buyer_name","buyer_email","address","closing_date"].map(k => (
+                    <input
+                      key={k}
+                      placeholder={k.replace("_"," ")}
+                      value={newTxn[k]}
+                      onChange={e => setNewTxn(p => ({ ...p, [k]: e.target.value }))}
+                      style={input}
+                    />
+                  ))}
+                  <button style={btnPrimary} onClick={createTransaction}>
+                    {creatingTxn ? "Creating…" : "Create"}
                   </button>
                 </div>
-              </div>
-            ) : null}
-          </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Right side */}
+        <div style={card}>
+          <h3>Basics</h3>
+          {[address,setAddress,closingDate,setClosingDate,heroImageUrl,setHeroImageUrl,homesteadUrl,setHomesteadUrl,reviewUrl,setReviewUrl,myDocsUrl,setMyDocsUrl].map(()=>null)}
+          <input style={input} value={address} onChange={e=>setAddress(e.target.value)} placeholder="Address"/>
+          <input style={input} type="date" value={closingDate} onChange={e=>setClosingDate(e.target.value)}/>
+          <input style={input} value={heroImageUrl} onChange={e=>setHeroImageUrl(e.target.value)} placeholder="Hero image URL"/>
+          <input style={input} value={homesteadUrl} onChange={e=>setHomesteadUrl(e.target.value)} placeholder="Homestead link"/>
+          <input style={input} value={reviewUrl} onChange={e=>setReviewUrl(e.target.value)} placeholder="Review link"/>
+          <input style={input} value={myDocsUrl} onChange={e=>setMyDocsUrl(e.target.value)} placeholder="My Documents link"/>
+
+          <button style={btnPrimary} onClick={saveBasics}>
+            {saving ? "Saving…" : "Save Basics"}
+          </button>
+
+          <h3 style={{ marginTop: 20 }}>Vendors & Utilities</h3>
+
+          <label>Closing Attorney</label>
+          <select style={input} value={closingAttorneyId} onChange={e=>setClosingAttorneyId(e.target.value)}>
+            <option value="">— Select —</option>
+            {vendorFavorites.filter(v=>v.category==="closing_attorney").map(v=>(
+              <option key={v.id} value={v.id}>{v.name}</option>
+            ))}
+          </select>
+
+          <CheckboxList
+            title="Preferred Vendors"
+            items={vendorFavorites.filter(v=>v.category!=="closing_attorney" && v.category!=="utility")}
+            selected={preferredVendorIds}
+            setSelected={setPreferredVendorIds}
+          />
+
+          <CheckboxList
+            title="Utilities"
+            items={vendorFavorites.filter(v=>v.category==="utility")}
+            selected={utilityVendorIds}
+            setSelected={setUtilityVendorIds}
+          />
+
+          <button style={btnPrimary} onClick={saveVendors}>
+            {vendorsSaving ? "Saving…" : "Save Vendors / Utilities"}
+          </button>
+
+          {vendorsMsg && <div style={{ marginTop: 8 }}>{vendorsMsg}</div>}
         </div>
       </div>
     </div>
   );
 }
 
-function Field({ label, children }) {
+// ---------- helpers ----------
+function CheckboxList({ title, items, selected, setSelected }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ fontSize: 12, opacity: 0.75 }}>{label}</div>
-      {children}
+    <div style={{ marginTop: 12 }}>
+      <strong>{title}</strong>
+      {items.map(v => {
+        const id = String(v.id);
+        return (
+          <label key={id} style={{ display: "block" }}>
+            <input
+              type="checkbox"
+              checked={selected.has(id)}
+              onChange={()=>{
+                setSelected(prev=>{
+                  const n=new Set(prev);
+                  n.has(id)?n.delete(id):n.add(id);
+                  return n;
+                });
+              }}
+            />{" "}
+            {v.name}
+          </label>
+        );
+      })}
     </div>
   );
 }
 
-const inputStyle = {
-  width: "100%",
-  padding: "10px 10px",
-  borderRadius: 10,
-  border: "1px solid rgba(255,255,255,0.16)",
-  background: "rgba(0,0,0,0.25)",
-  color: "inherit",
+const card = {
+  padding: 16,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.12)",
 };
 
-function btnPrimaryStyle(disabled) {
-  return {
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.16)",
-    background: "rgba(255,255,255,0.10)",
-    color: "inherit",
-    cursor: disabled ? "not-allowed" : "pointer",
-    fontWeight: 700,
-  };
-}
-
-const btnSecondaryStyle = {
-  padding: "10px 12px",
+const input = {
+  width: "100%",
+  padding: 10,
   borderRadius: 10,
-  border: "1px solid rgba(255,255,255,0.16)",
-  background: "rgba(255,255,255,0.06)",
-  color: "inherit",
-  cursor: "pointer",
+  marginTop: 8,
+};
+
+const btnPrimary = {
+  marginTop: 12,
+  padding: 10,
+  borderRadius: 10,
   fontWeight: 700,
+};
+
+const btnSecondary = {
+  marginTop: 10,
+  padding: 8,
+  borderRadius: 10,
 };

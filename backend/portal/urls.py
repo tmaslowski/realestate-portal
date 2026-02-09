@@ -15,4 +15,5 @@ urlpatterns = [
         views.agent_set_transaction_vendors,
     ),
     path("agent/transaction/create/", views.agent_transaction_create),
+    path("agent/signup/", views.agent_signup),
 ]

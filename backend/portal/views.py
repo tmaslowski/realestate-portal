@@ -13,6 +13,7 @@ from .models import (
     AgentPortalToken,
     Transaction,
     PortalToken,
+    Utility,
     Document,
     Task,
     TransactionVendor,
@@ -158,12 +159,16 @@ def portal_session(request):
         for u in txn.utilities.order_by("category", "provider_name")
     ]
 
+    # Document model is now "url"-based (but this supports old "file" safely too)
     documents = [
         {
             "id": d.id,
             "title": d.title,
-            "doc_type": d.doc_type,
-            "url": d.url,  # ✅ changed
+            "doc_type": getattr(d, "doc_type", ""),
+            "url": (
+                getattr(d, "url", "")
+                or (d.file.url if hasattr(d, "file") and getattr(d, "file") else "")
+            ),
             "uploaded_at": d.uploaded_at,
         }
         for d in txn.documents.filter(visible_to_buyer=True).order_by("-uploaded_at")
@@ -189,7 +194,9 @@ def portal_session(request):
         if tv.role == TransactionVendor.Role.CLOSING_ATTORNEY:
             closing_attorney = payload
         elif tv.role == TransactionVendor.Role.PREFERRED_VENDOR:
-            preferred_vendors.append(payload)
+            # Guard: utilities should never be treated as preferred vendors
+            if str(v.category) != "utility":
+                preferred_vendors.append(payload)
 
     faqs = (
         [
@@ -414,15 +421,20 @@ def agent_transaction(request, transaction_id):
         {
             "id": d.id,
             "title": d.title,
-            "doc_type": d.doc_type,
-            "url": d.url,  # ✅ changed
+            "doc_type": getattr(d, "doc_type", ""),
+            "url": (
+                getattr(d, "url", "")
+                or (d.file.url if hasattr(d, "file") and getattr(d, "file") else "")
+            ),
             "uploaded_at": d.uploaded_at,
         }
         for d in txn.documents.filter(visible_to_buyer=True).order_by("-uploaded_at")
     ]
 
+    # ✅ FIX: tv_qs must be defined before iterating
     closing_attorney = None
     preferred_vendors = []
+    utility_providers = []
 
     tv_qs = txn.transaction_vendors.select_related("vendor").all()
     for tv in tv_qs:
@@ -438,10 +450,18 @@ def agent_transaction(request, transaction_id):
             "notes": tv.notes_override or v.notes,
             "is_favorite": v.is_favorite,
         }
+
         if tv.role == TransactionVendor.Role.CLOSING_ATTORNEY:
             closing_attorney = payload
         elif tv.role == TransactionVendor.Role.PREFERRED_VENDOR:
-            preferred_vendors.append(payload)
+            # Guard: utilities should never be treated as preferred vendors
+            if str(v.category) != "utility":
+                preferred_vendors.append(payload)
+        elif (
+            hasattr(TransactionVendor.Role, "UTILITY_PROVIDER")
+            and tv.role == TransactionVendor.Role.UTILITY_PROVIDER
+        ):
+            utility_providers.append(payload)
 
     faqs = (
         [
@@ -468,6 +488,7 @@ def agent_transaction(request, transaction_id):
             "documents": documents,
             "closing_attorney": closing_attorney,
             "preferred_vendors": preferred_vendors,
+            "utility_providers": utility_providers,
             "homestead_exemption_url": getattr(txn, "homestead_exemption_url", ""),
             "review_url": getattr(txn, "review_url", ""),
             "faqs": faqs,
@@ -491,7 +512,6 @@ def agent_vendors(request):
     qs = Vendor.objects.filter(agent=agent, is_favorite=True).order_by(
         "category", "name"
     )
-
     favorites = [
         {
             "id": v.id,
@@ -506,7 +526,6 @@ def agent_vendors(request):
         }
         for v in qs
     ]
-
     return Response({"favorites": favorites})
 
 
@@ -560,12 +579,13 @@ def agent_vendor_create(request):
 @permission_classes([AllowAny])
 def agent_set_transaction_vendors(request, transaction_id):
     """
-    Sets the closing attorney + preferred vendors for a transaction.
+    Sets the closing attorney + preferred vendors + utility providers for a transaction.
     Auth: AgentPortalToken in ?t=
     Body:
       {
         closing_attorney_vendor_id: number|null,
-        preferred_vendor_ids: number[]
+        preferred_vendor_ids: number[],
+        utility_provider_ids: number[]
       }
     """
     agent, err = _get_agent_from_token(request)
@@ -582,14 +602,19 @@ def agent_set_transaction_vendors(request, transaction_id):
     payload = request.data or {}
     closing_id = payload.get("closing_attorney_vendor_id")
     preferred_ids = payload.get("preferred_vendor_ids") or []
+    utility_ids = payload.get("utility_provider_ids") or []
 
-    txn.transaction_vendors.filter(
-        role__in=[
-            TransactionVendor.Role.CLOSING_ATTORNEY,
-            TransactionVendor.Role.PREFERRED_VENDOR,
-        ]
-    ).delete()
+    # Clear existing links for these roles
+    roles_to_clear = [
+        TransactionVendor.Role.CLOSING_ATTORNEY,
+        TransactionVendor.Role.PREFERRED_VENDOR,
+    ]
+    if hasattr(TransactionVendor.Role, "UTILITY_PROVIDER"):
+        roles_to_clear.append(TransactionVendor.Role.UTILITY_PROVIDER)
 
+    txn.transaction_vendors.filter(role__in=roles_to_clear).delete()
+
+    # Closing attorney (optional)
     if closing_id:
         try:
             v = Vendor.objects.get(id=closing_id, agent=agent)
@@ -605,8 +630,22 @@ def agent_set_transaction_vendors(request, transaction_id):
             role=TransactionVendor.Role.CLOSING_ATTORNEY,
         )
 
+    # Preferred vendors (0..n) — must NOT include utilities
     if preferred_ids:
-        vendors = Vendor.objects.filter(id__in=preferred_ids, agent=agent)
+        bad = Vendor.objects.filter(
+            id__in=preferred_ids, agent=agent, category="utility"
+        )
+        if bad.exists():
+            return Response(
+                {
+                    "error": "Utilities cannot be added as preferred vendors. Use Utilities instead."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        vendors = Vendor.objects.filter(id__in=preferred_ids, agent=agent).exclude(
+            category="utility"
+        )
         for v in vendors:
             TransactionVendor.objects.create(
                 transaction=txn,
@@ -614,10 +653,49 @@ def agent_set_transaction_vendors(request, transaction_id):
                 role=TransactionVendor.Role.PREFERRED_VENDOR,
             )
 
+    # Utility providers (0..n) — only category=utility
+    # Also sync them into the Utility model so the buyer "Utilities" card stays correct.
+    if hasattr(TransactionVendor.Role, "UTILITY_PROVIDER"):
+        if utility_ids:
+            utility_vendors = Vendor.objects.filter(
+                id__in=utility_ids, agent=agent, category="utility"
+            )
+            for v in utility_vendors:
+                TransactionVendor.objects.create(
+                    transaction=txn,
+                    vendor=v,
+                    role=TransactionVendor.Role.UTILITY_PROVIDER,
+                )
+
+            # Demo-friendly sync: replace txn.utilities based on the selected utility vendors
+            txn.utilities.all().delete()
+            Utility.objects.bulk_create(
+                [
+                    Utility(
+                        transaction=txn,
+                        category=Utility.Category.OTHER
+                        if hasattr(Utility, "Category")
+                        else "other",
+                        provider_name=v.name,
+                        phone=v.phone or "",
+                        website=v.website or "",
+                        account_number_hint="",
+                        notes=v.notes or "",
+                        due_date=None,
+                    )
+                    for v in utility_vendors
+                ]
+            )
+        else:
+            # If agent clears utilities, clear txn.utilities (demo behavior)
+            txn.utilities.all().delete()
+
     return Response({"ok": True})
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def agent_transaction_create(request):
     """
     Create a new Transaction (and Buyer if needed) for the logged-in Agent.
@@ -631,19 +709,10 @@ def agent_transaction_create(request):
       create_defaults?: true/false
     }
     """
-    token_value = request.query_params.get("t", "")
-    if not token_value:
-        return Response({"error": "missing token"}, status=status.HTTP_400_BAD_REQUEST)
+    agent, err = _get_agent_from_token(request)
+    if err:
+        return err
 
-    try:
-        t = AgentPortalToken.objects.select_related("agent").get(token=token_value)
-    except AgentPortalToken.DoesNotExist:
-        return Response({"error": "invalid token"}, status=status.HTTP_401_UNAUTHORIZED)
-
-    if not t.is_valid():
-        return Response({"error": "expired token"}, status=status.HTTP_401_UNAUTHORIZED)
-
-    agent = t.agent
     data = request.data or {}
 
     buyer_name = (data.get("buyer_name") or "").strip()
@@ -682,13 +751,13 @@ def agent_transaction_create(request):
         homestead_exemption_url=(data.get("homestead_exemption_url") or ""),
         review_url=(data.get("review_url") or ""),
         lofty_transaction_id=(data.get("lofty_transaction_id") or ""),
+        my_documents_url=(data.get("my_documents_url") or ""),
     )
 
     # ✅ auto-create templates unless explicitly turned off
     create_defaults = data.get("create_defaults", True)
 
     if create_defaults:
-        # Tasks
         Task.objects.bulk_create(
             [
                 Task(
@@ -701,56 +770,6 @@ def agent_transaction_create(request):
             ]
         )
 
-        # Utilities (placeholders that the agent can replace)
-        Utility.objects.bulk_create(
-            [
-                Utility(
-                    transaction=txn,
-                    category=u["category"],
-                    provider_name=u["provider_name"],
-                    phone="",
-                    website="",
-                    account_number_hint="",
-                    notes="",
-                    due_date=None,
-                )
-                for u in DEFAULT_UTILITY_TEMPLATES
-            ]
-        )
-
-    return Response(
-        {
-            "transaction": {
-                "id": txn.id,
-                "address": txn.address,
-                "status": txn.status,
-                "closing_date": txn.closing_date,
-                "buyer_name": txn.buyer.name,
-                "buyer_email": txn.buyer.email,
-            },
-            "created_defaults": bool(create_defaults),
-        },
-        status=status.HTTP_201_CREATED,
-    )
-
-    # ✅ auto-create templates unless explicitly turned off
-    create_defaults = data.get("create_defaults", True)
-
-    if create_defaults:
-        # Tasks
-        Task.objects.bulk_create(
-            [
-                Task(
-                    transaction=txn,
-                    title=t["title"],
-                    description=t.get("description", ""),
-                    order=t.get("order", 0),
-                )
-                for t in DEFAULT_TASK_TEMPLATES
-            ]
-        )
-
-        # Utilities (placeholders that the agent can replace)
         Utility.objects.bulk_create(
             [
                 Utility(
@@ -784,6 +803,8 @@ def agent_transaction_create(request):
 
 
 @api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def toggle_task(request, task_id):
     try:
         task = Task.objects.get(id=task_id)
@@ -793,3 +814,51 @@ def toggle_task(request, task_id):
     task.completed = not task.completed
     task.save(update_fields=["completed"])
     return Response({"id": task.id, "completed": task.completed})
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def agent_signup(request):
+    """
+    Public signup endpoint (no auth yet).
+    Creates or reuses an Agent by email, then mints an AgentPortalToken and returns the agent link.
+
+    POST /api/portal/agent/signup/
+    Body: { "name": "...", "email": "..." }
+    """
+    name = (request.data.get("name") or "").strip()
+    email = (request.data.get("email") or "").strip().lower()
+
+    if not name:
+        return Response(
+            {"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST
+        )
+    if not email:
+        return Response(
+            {"error": "email is required"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    agent, created = Agent.objects.get_or_create(
+        email=email,
+        defaults={"name": name},
+    )
+
+    # Keep name updated if they re-submit
+    if agent.name != name:
+        agent.name = name
+        agent.save(update_fields=["name"])
+
+    token = AgentPortalToken.mint(agent, hours=72)
+    link = f"http://localhost:5173/agent?t={token.token}"
+
+    return Response(
+        {
+            "created": bool(created),
+            "agent": {"id": agent.id, "name": agent.name, "email": agent.email},
+            "token": token.token,
+            "expires_at": token.expires_at,
+            "link": link,
+        },
+        status=status.HTTP_201_CREATED,
+    )

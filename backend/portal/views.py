@@ -86,7 +86,6 @@ DEFAULT_UTILITY_TEMPLATES = [
 def invite_buyer(request, transaction_id):
     """
     Demo-friendly: returns a magic link instead of emailing it.
-    Later we can send email via AWS SES.
     """
     try:
         txn = Transaction.objects.select_related("buyer", "agent").get(
@@ -159,7 +158,6 @@ def portal_session(request):
         for u in txn.utilities.order_by("category", "provider_name")
     ]
 
-    # Document model is now "url"-based (but this supports old "file" safely too)
     documents = [
         {
             "id": d.id,
@@ -194,7 +192,6 @@ def portal_session(request):
         if tv.role == TransactionVendor.Role.CLOSING_ATTORNEY:
             closing_attorney = payload
         elif tv.role == TransactionVendor.Role.PREFERRED_VENDOR:
-            # Guard: utilities should never be treated as preferred vendors
             if str(v.category) != "utility":
                 preferred_vendors.append(payload)
 
@@ -236,8 +233,23 @@ def portal_session(request):
 # -----------------------------
 
 
+def _extract_agent_token(request):
+    # Prefer header token (safer than querystring)
+    header_token = request.headers.get("X-Agent-Token", "")
+    if header_token:
+        return header_token.strip()
+
+    # Optional: support Authorization: Bearer <token>
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth.split(" ", 1)[1].strip()
+
+    # Backward compatible fallback
+    return (request.query_params.get("t", "") or "").strip()
+
+
 def _get_agent_from_token(request):
-    token_value = request.query_params.get("t", "")
+    token_value = _extract_agent_token(request)
     if not token_value:
         return None, Response(
             {"error": "missing token"}, status=status.HTTP_400_BAD_REQUEST
@@ -262,10 +274,6 @@ def _get_agent_from_token(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def invite_agent(request, agent_id):
-    """
-    Demo-friendly: returns an agent magic link instead of emailing it.
-    Later we can send via AWS SES.
-    """
     try:
         agent = Agent.objects.get(id=agent_id)
     except Agent.DoesNotExist:
@@ -288,12 +296,6 @@ def invite_agent(request, agent_id):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def agent_session(request):
-    """
-    Agent UI bootstrap:
-    - validates agent token (?t=...)
-    - returns agent profile + list of their transactions
-    - and favorite vendors (for pickers)
-    """
     agent, err = _get_agent_from_token(request)
     if err:
         return err
@@ -347,13 +349,6 @@ def agent_session(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def agent_transaction(request, transaction_id):
-    """
-    Agent UI loads/saves one transaction's editable fields.
-    Auth: AgentPortalToken passed as ?t=TOKEN
-
-    GET  -> returns transaction payload (same shape as buyer session, but scoped)
-    PATCH -> updates allowed fields, returns refreshed payload
-    """
     agent, err = _get_agent_from_token(request)
     if err:
         return err
@@ -431,7 +426,6 @@ def agent_transaction(request, transaction_id):
         for d in txn.documents.filter(visible_to_buyer=True).order_by("-uploaded_at")
     ]
 
-    # ✅ FIX: tv_qs must be defined before iterating
     closing_attorney = None
     preferred_vendors = []
     utility_providers = []
@@ -454,7 +448,6 @@ def agent_transaction(request, transaction_id):
         if tv.role == TransactionVendor.Role.CLOSING_ATTORNEY:
             closing_attorney = payload
         elif tv.role == TransactionVendor.Role.PREFERRED_VENDOR:
-            # Guard: utilities should never be treated as preferred vendors
             if str(v.category) != "utility":
                 preferred_vendors.append(payload)
         elif (
@@ -501,10 +494,6 @@ def agent_transaction(request, transaction_id):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def agent_vendors(request):
-    """
-    Returns favorite vendors for this agent (used by AgentSetup.jsx).
-    GET /api/portal/agent/vendors/?t=TOKEN
-    """
     agent, err = _get_agent_from_token(request)
     if err:
         return err
@@ -533,10 +522,6 @@ def agent_vendors(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def agent_vendor_create(request):
-    """
-    Create a Vendor belonging to the logged-in agent.
-    POST /api/portal/agent/vendor/create/?t=TOKEN
-    """
     agent, err = _get_agent_from_token(request)
     if err:
         return err
@@ -578,16 +563,6 @@ def agent_vendor_create(request):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def agent_set_transaction_vendors(request, transaction_id):
-    """
-    Sets the closing attorney + preferred vendors + utility providers for a transaction.
-    Auth: AgentPortalToken in ?t=
-    Body:
-      {
-        closing_attorney_vendor_id: number|null,
-        preferred_vendor_ids: number[],
-        utility_provider_ids: number[]
-      }
-    """
     agent, err = _get_agent_from_token(request)
     if err:
         return err
@@ -604,7 +579,6 @@ def agent_set_transaction_vendors(request, transaction_id):
     preferred_ids = payload.get("preferred_vendor_ids") or []
     utility_ids = payload.get("utility_provider_ids") or []
 
-    # Clear existing links for these roles
     roles_to_clear = [
         TransactionVendor.Role.CLOSING_ATTORNEY,
         TransactionVendor.Role.PREFERRED_VENDOR,
@@ -614,7 +588,6 @@ def agent_set_transaction_vendors(request, transaction_id):
 
     txn.transaction_vendors.filter(role__in=roles_to_clear).delete()
 
-    # Closing attorney (optional)
     if closing_id:
         try:
             v = Vendor.objects.get(id=closing_id, agent=agent)
@@ -630,7 +603,6 @@ def agent_set_transaction_vendors(request, transaction_id):
             role=TransactionVendor.Role.CLOSING_ATTORNEY,
         )
 
-    # Preferred vendors (0..n) — must NOT include utilities
     if preferred_ids:
         bad = Vendor.objects.filter(
             id__in=preferred_ids, agent=agent, category="utility"
@@ -653,8 +625,6 @@ def agent_set_transaction_vendors(request, transaction_id):
                 role=TransactionVendor.Role.PREFERRED_VENDOR,
             )
 
-    # Utility providers (0..n) — only category=utility
-    # Also sync them into the Utility model so the buyer "Utilities" card stays correct.
     if hasattr(TransactionVendor.Role, "UTILITY_PROVIDER"):
         if utility_ids:
             utility_vendors = Vendor.objects.filter(
@@ -667,7 +637,6 @@ def agent_set_transaction_vendors(request, transaction_id):
                     role=TransactionVendor.Role.UTILITY_PROVIDER,
                 )
 
-            # Demo-friendly sync: replace txn.utilities based on the selected utility vendors
             txn.utilities.all().delete()
             Utility.objects.bulk_create(
                 [
@@ -687,7 +656,6 @@ def agent_set_transaction_vendors(request, transaction_id):
                 ]
             )
         else:
-            # If agent clears utilities, clear txn.utilities (demo behavior)
             txn.utilities.all().delete()
 
     return Response({"ok": True})
@@ -697,18 +665,6 @@ def agent_set_transaction_vendors(request, transaction_id):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def agent_transaction_create(request):
-    """
-    Create a new Transaction (and Buyer if needed) for the logged-in Agent.
-    POST /api/portal/agent/transaction/create/?t=TOKEN
-
-    Body: {
-      buyer_name, buyer_email, address,
-      closing_date?, status?,
-      hero_image_url?, homestead_exemption_url?, review_url?,
-      lofty_transaction_id?,
-      create_defaults?: true/false
-    }
-    """
     agent, err = _get_agent_from_token(request)
     if err:
         return err
@@ -719,20 +675,12 @@ def agent_transaction_create(request):
     buyer_email = (data.get("buyer_email") or "").strip()
     address = (data.get("address") or "").strip()
 
-    if not buyer_name:
+    if not buyer_name or not buyer_email or not address:
         return Response(
-            {"error": "buyer_name is required"}, status=status.HTTP_400_BAD_REQUEST
-        )
-    if not buyer_email:
-        return Response(
-            {"error": "buyer_email is required"}, status=status.HTTP_400_BAD_REQUEST
-        )
-    if not address:
-        return Response(
-            {"error": "address is required"}, status=status.HTTP_400_BAD_REQUEST
+            {"error": "buyer_name, buyer_email, and address are required"},
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # create/reuse buyer (demo-friendly)
     buyer, _ = Buyer.objects.get_or_create(
         email=buyer_email,
         defaults={"name": buyer_name},
@@ -754,7 +702,6 @@ def agent_transaction_create(request):
         my_documents_url=(data.get("my_documents_url") or ""),
     )
 
-    # ✅ auto-create templates unless explicitly turned off
     create_defaults = data.get("create_defaults", True)
 
     if create_defaults:
@@ -820,23 +767,12 @@ def toggle_task(request, task_id):
 @authentication_classes([])
 @permission_classes([AllowAny])
 def agent_signup(request):
-    """
-    Public signup endpoint (no auth yet).
-    Creates or reuses an Agent by email, then mints an AgentPortalToken and returns the agent link.
-
-    POST /api/portal/agent/signup/
-    Body: { "name": "...", "email": "..." }
-    """
     name = (request.data.get("name") or "").strip()
     email = (request.data.get("email") or "").strip().lower()
 
-    if not name:
+    if not name or not email:
         return Response(
-            {"error": "name is required"}, status=status.HTTP_400_BAD_REQUEST
-        )
-    if not email:
-        return Response(
-            {"error": "email is required"}, status=status.HTTP_400_BAD_REQUEST
+            {"error": "name and email are required"}, status=status.HTTP_400_BAD_REQUEST
         )
 
     agent, created = Agent.objects.get_or_create(
@@ -844,7 +780,6 @@ def agent_signup(request):
         defaults={"name": name},
     )
 
-    # Keep name updated if they re-submit
     if agent.name != name:
         agent.name = name
         agent.save(update_fields=["name"])

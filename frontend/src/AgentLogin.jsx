@@ -7,6 +7,17 @@ export default function AgentLogin() {
 
   const canGo = useMemo(() => token.trim().length > 10, [token]);
 
+  const handleLogin = () => {
+    const cleanToken = token.trim();
+    if (!cleanToken) return;
+
+    // Store the token in sessionStorage so the AgentSetup page can pick it up
+    sessionStorage.setItem("agent_token", cleanToken);
+
+    // Navigate to the dashboard without the ?t= parameter
+    navigate("/agent");
+  };
+
   return (
     <div style={styles.page}>
       <div style={styles.topbar}>
@@ -35,7 +46,7 @@ export default function AgentLogin() {
             </div>
 
             <button
-              onClick={() => navigate(`/agent?t=${encodeURIComponent(token.trim())}`)}
+              onClick={handleLogin}
               disabled={!canGo}
               style={styles.primaryBtn(!canGo)}
             >
